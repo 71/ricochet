@@ -1,0 +1,15 @@
+doctype html
+
+head
+  title Examples
+
+body
+  script(src='../src/runtime/index.ts')
+  script.
+    window.runtime = parcelRequire('../src/runtime/index.ts')
+
+  #content
+
+  script(src='todo/index.tsx')
+  script(src='numbers/index.tsx')
+  script(src='async/index.tsx')
