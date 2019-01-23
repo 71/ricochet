@@ -328,9 +328,9 @@ function createArrayProxy<T, R = T>(
  * of the list, sets up a reactive component that only re-renders children
  * when needed, and wraps each list call into an efficient render-update method.
  */
-function renderObservable<T>(
+function renderObservable(
   parent: Element,
-  list  : NestedNode
+  node  : NestedNode
 ) {
   let totalLength = 0
 
@@ -568,9 +568,9 @@ function renderObservable<T>(
  * Returns an observable node that gets updated when the given list gets updated,
  * according to a `map` function.
  */
-export function map<T, R>(list: ObservableLike<T[]>, map: (item: T) => R): ObservableLike<R> {
+export function map<T, R>(list: ObservableLike<T[]>, map: (item: T) => R): ObservableLike<R[]> {
   const src: T[] = value(list)
-  const dst: R[] = []
+  const dst: R[] = src.map(map)
 
   const proxy = createArrayProxy<T, R>(src, {
     get: (i   ) => dst[i],
@@ -656,7 +656,7 @@ export function map<T, R>(list: ObservableLike<T[]>, map: (item: T) => R): Obser
     },
 
     copyWithin: () => {
-      throw new Error('Cannot copy withing a reactive list.')
+      throw new Error('Cannot copy withing an observable list.')
     }
   })
 
