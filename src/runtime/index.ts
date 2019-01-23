@@ -24,6 +24,10 @@ type WritablePart<T> = Pick<T, WritableKeys<T>>
 type Unsubscribable = Rx.Unsubscribable
 
 
+// ==============================================================================================
+// ==== DOM MANIPULATION ========================================================================
+// ==============================================================================================
+
 /**
  * An arbitrarily nested DOM `Node`.
  */
@@ -671,47 +675,55 @@ export function map<T, R>(list: ObservableLike<T[]>, map: (item: T) => R): Obser
 }
 
 
-/**
- * Defines an observable stream that notifies subscribers of a change of a value.
- */
-export class Observable<T> implements Rx.Subscribable<T> {
-  private val: T
-  private readonly observers: Rx.PartialObserver<T>[]
+// ==============================================================================================
+// ==== REACTIVE API ============================================================================
+// ==============================================================================================
 
-  constructor(value: T) {
-    this.observers = []
+function subscribe<T>(
+  observers: Rx.PartialObserver<T>[],
+  next    ?: Rx.PartialObserver<T> | ((value: T) => void),
+  error   ?: (error: any) => void,
+  complete?: () => void,
+): Unsubscribable {
+  const observer: Rx.PartialObserver<T> = typeof next == 'function'
+    ? { next, error, complete }
+    : next
 
-    this.setUnderlyingValue(value)
+  observers.push(observer)
+
+  return {
+    unsubscribe: () => {
+      observers.splice(observers.indexOf(observer), 1)
+    }
   }
+}
+
+/**
+ * Defines an observable stream that notifies subscribers of a change of its underlying value.
+ */
+export class ReadonlyObservable<T> implements Rx.Subscribable<T> {
+  protected readonly observers: Rx.PartialObserver<T>[] = []
+
+  constructor(protected val: T) {}
 
   /**
-   * Sets the underlying value without notifying subscribers of the change.
-   */
-  setUnderlyingValue(value: T) {
-    this.val = value
-  }
-
-  /** Gets or sets the underlying value.
-   *
-   * - When getting the value, only the last version is returned.
-   * - When setting the value, also notifies all subscribers of the change.
+   * Gets the underlying value.
    */
   get value() {
     return this.val
   }
 
-  set value(value: T) {
-    this.setUnderlyingValue(value)
+  /**
+   * Notifies observers of a value change.
+   */
+  protected updateValue(value: T) {
+    if (value === this.val)
+      return
+
+    this.val = value
 
     for (let i = 0; i < this.observers.length; i++)
-      this.observers[i].next(value)
-  }
-
-  /**
-   * Returns the string representation of the underlying value.
-   */
-  toString() {
-    return this.val ? this.val.toString() : undefined
+      this.observers[i].next(this.val)
   }
 
   /**
@@ -722,17 +734,7 @@ export class Observable<T> implements Rx.Subscribable<T> {
     error   ?: (error: any) => void,
     complete?: () => void,
   ): Rx.Unsubscribable {
-    const observer: Rx.PartialObserver<T> = typeof next == 'function'
-      ? { next, error, complete }
-      : next
-
-    this.observers.push(observer)
-
-    return {
-      unsubscribe: () => {
-        this.observers.splice(this.observers.indexOf(observer), 1)
-      }
-    }
+    return subscribe(this.observers, next, error, complete)
   }
 
   /**
@@ -743,47 +745,91 @@ export class Observable<T> implements Rx.Subscribable<T> {
     error   ?: (error: any) => void,
     complete?: () => void,
   ): Rx.Unsubscribable {
-    return this.subscribe(next, error, complete)
+    return subscribe(this.observers, next, error, complete)
   }
 
   /**
-   * Returns a new `Observable` that gets updated when the source (`this`) observable
-   * changes.
-   *
-   * If the `unmap` parameter is given, then changes will be propagated both ways.
+   * Returns the string representation of the underlying value.
    */
-  map<R>(map: (input: T) => R, unmap?: (input: R) => T): Observable<R> {
+  toString() {
+    return this.val ? this.val.toString() : undefined
+  }
+
+  /**
+   * Returns a new `ReadonlyObservable` that gets updated when the source (`this`) observable
+   * changes.
+   */
+  map<R>(map: (input: T) => R): ReadonlyObservable<R> {
+    const self = this
+
+    return new class extends ReadonlyObservable<R> {
+      constructor(value: R) {
+        super(value)
+
+        self.subscribe(v => this.updateValue(map(v)))
+      }
+    }(map(this.val))
+  }
+}
+
+/**
+ * Defines an observable stream that notifies subscribers of a change of its underlying value,
+ * and allows said value to be changed at any time.
+ */
+export class Observable<T> extends ReadonlyObservable<T> {
+  constructor(value: T) {
+    super(value)
+  }
+
+  /**
+   * Sets the underlying value without notifying subscribers of the change.
+   */
+  setUnderlyingValue(value: T) {
+    this.val = value
+  }
+
+  /**
+   * Gets or sets the underlying value.
+   *
+   * - When getting the value, only the last version is returned.
+   * - When setting the value, also notifies all subscribers of the change.
+   */
+  set value(value: T) {
+    this.updateValue(value)
+  }
+
+  /**
+   * @inheritdoc
+   */
+  map<R>(map: (input: T) => R): ReadonlyObservable<R>
+
+  /**
+   * Returns a new `Observable` that propagates changes to values both ways.
+   */
+  map<R>(map: (input: T) => R, unmap: (input: R) => T): Observable<R>
+
+  map<R>(map: (input: T) => R, unmap?: (input: R) => T) {
+    if (unmap == undefined)
+      return super.map(map)
+
     const obs = new Observable<R>(map(this.val))
     let updating = false
 
-    if (unmap != null) {
-      this.subscribe(x => {
-        if (updating) return
+    this.subscribe(x => {
+      if (updating) return
 
-        updating = true
-        obs.value = map(x)
-        updating = false
-      })
+      updating = true
+      obs.value = map(x)
+      updating = false
+    })
 
-      obs.subscribe(x => {
-        if (updating) return
+    obs.subscribe(x => {
+      if (updating) return
 
-        updating = true
-        this.value = unmap(x)
-        updating = false
-      })
-    } else {
-      this.subscribe(x => {
-        updating = true
-        obs.value = map(x)
-        updating = false
-      })
-
-      obs.subscribe(() => {
-        if (!updating)
-          throw new Error('Cannot set value of map-created observable.')
-      })
-    }
+      updating = true
+      this.value = unmap(x)
+      updating = false
+    })
 
     return obs
   }
@@ -833,49 +879,33 @@ export function value<T>(value: ObservableLike<T>): T extends Observable<infer V
  * Returns a computed value that is updated every time of one of the given
  * dependencies changes.
  */
-export function computed<T>(dependencies: Observable<any>[], computation: () => T): Observable<T> {
-  const obs = new Observable<T>(computation())
-
-  if (dependencies.length > 0)
-    merge(...dependencies).subscribe(() => obs.value = computation())
-
-  return obs
-}
-
-/**
- * Merges multiple observable sequences together.
- */
-export function merge(...observables: Rx.Subscribable<any>[]): Rx.Subscribable<any> {
-  if (observables.length == 1)
-    return observables[0]
-
-  const observers: Rx.PartialObserver<any>[] = []
-  const subscriptions: Rx.Unsubscribable[] = []
-
-  for (let i = 0; i < observables.length; i++) {
-    subscriptions.push(observables[i].subscribe(v => {
-      for (const observer of observers)
-        observer.next(v)
-    }))
+export function combine<T, D extends ObservableLike<any>[]>(
+  dependencies: D,
+  computation : () => T
+): D extends [] ? T : ReadonlyObservable<T> {
+  // Filter out non-reactive dependencies
+  for (let i = dependencies.length - 1; i >= 0;) {
+    // Note that we're going from the end to the start, since
+    // splicing at the end is more efficient that splicing inside.
+    if (isObservable(dependencies[i]))
+      i--
+    else
+      dependencies.splice(i, 1)
   }
 
-  return {
-    subscribe: (
-      next    ?: Rx.PartialObserver<any> | ((value: any) => void),
-      error   ?: (error: any) => void,
-      complete?: () => void
-    ): Rx.Unsubscribable => {
-      const observer = typeof next == 'function' ? { next, error, complete } : next
+  if (dependencies.length == 0)
+    // @ts-ignore
+    return computation()
 
-      observers.push(observer)
+  // @ts-ignore
+  return new class extends ReadonlyObservable<T> {
+    constructor(value: T) {
+      super(value)
 
-      return {
-        unsubscribe: () => {
-          observers.splice(observers.indexOf(observer), 1)
-        }
-      }
+      for (let i = 0; i < dependencies.length; i++)
+        dependencies[i].subscribe(() => this.updateValue(computation()))
     }
-  }
+  }(computation())
 }
 
 
