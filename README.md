@@ -1,20 +1,19 @@
 # Ricochet
 
+A small React-like web framework meant to be simple, light and fast.
+
 ## Syntax
 
-#### Closed element
+#### Intrinsic elements
 ```jsx
 // Input:
 <div value={value} label='foo' { ... props } />
 
 // Output:
-const div = createElement(null, 'div', { value: value, label: 'foo', ... props }, {
-	label: ['constant'],
-	value: ['unknown']
-})
+const div = renderIntrinsicElement('div', { value: value, label: 'foo', ... props })
 ```
 
-#### Element with children
+#### Child elements
 ```jsx
 // Input:
 <div { ... props }>
@@ -35,7 +34,7 @@ const lit = createText(a, 'Hello ')
 const name = createDynamic(a, computed([name, firstName], () => name || firstName), { })
 ```
 
-#### Element with components
+#### Components
 ```jsx
 // Input:
 <div>

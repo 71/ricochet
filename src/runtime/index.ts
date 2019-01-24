@@ -1,4 +1,5 @@
 import * as Rx from 'rxjs'
+import { ObjectExpression } from '@babel/types';
 
 
 // See: https://stackoverflow.com/a/52473108
@@ -67,10 +68,11 @@ export type ElementProperties<Tag extends string> =
  *
  * Not intended for direct use.
  */
-export function h<Tag extends string>(
+export function rie<Tag extends string>(
   tag  : Tag,
   attrs: ElementProperties<Tag>,
-  subscriptions: Unsubscribable[]
+  children     : NodeArray,
+  subscriptions: Unsubscribable[],
 ): AnyElement<Tag, HTMLElement> {
   const el = document.createElement(tag) as any as AnyElement<Tag, HTMLElement>
 
@@ -112,8 +114,18 @@ export function h<Tag extends string>(
     }
   }
 
-  if (attrs.children)
+  if (children.length > 0) {
+    if (attrs.children)
+      // @ts-ignore
+      attrs.children.push(...children)
+    else
+      // @ts-ignore
+      attrs.children = children
+
     render(el, attrs.children, subscriptions)
+  } else if (attrs.children) {
+    render(el, attrs.children, subscriptions)
+  }
 
   return el
 }
@@ -129,11 +141,21 @@ export type Component<Props extends object, ReturnType extends Node> = (props: P
  *
  * Not intended for direct use.
  */
-export function hh<P extends object, E extends HTMLElement, K extends Component<P, E>>(
+export function rc<P extends object, E extends HTMLElement, K extends Component<P, E>>(
   component: K,
   props    : P & Partial<E>,
+  children     : NodeArray,
   subscriptions: Unsubscribable[]
 ): E {
+  if (children.length > 0) {
+    if (props.children)
+      // @ts-ignore
+      props.children.push(...children)
+    else
+      // @ts-ignore
+      props.children = children
+  }
+
   const el = component(props) as RenderedElement<E>
 
   subscriptions.push({ unsubscribe: () => el.subscriptions.slice(0).forEach(x => x.unsubscribe()) })
@@ -157,7 +179,7 @@ export type RenderedElement<E extends HTMLElement> =
  *
  * Not intended for direct use.
  */
-export function hhh<E extends HTMLElement>(
+export function rtl<E extends HTMLElement>(
   root         : E,
   subscriptions: Unsubscribable[]
 ): RenderedElement<E> {
@@ -184,7 +206,7 @@ export function destroy(node?: Node & Partial<JSX.Element>) {
   if (node.subscriptions == null)
     return
 
-  node.subscriptions.splice(0).forEach(sub => sub.unsubscribe)
+  node.subscriptions.splice(0).forEach(sub => sub.unsubscribe())
 
   if (node.ondestroy != null)
     node.ondestroy()
@@ -203,8 +225,8 @@ function destroyRecursively(prevIncluded: Node, nextExcluded: Node): void {
 
 
 /**
- * Renders the given node and all of its nested elements into the given parent,
- * and subscribes for future changes in order to re-render the needed parts.
+ * Renders the given node and all of its nested nodes into the given parent,
+ * and subscribes for future changes in order to automatically re-render its observable parts.
  */
 function render(parent: Element, node: NestedNode, subscriptions: Rx.Unsubscribable[]) {
   // The `r` function renders a node recursively between `prev` and `next`.
@@ -480,10 +502,10 @@ function createArrayProxy<T>(
 
 
 /**
- * Returns an observable node that gets updated when the given list gets updated,
+ * Propagates changes to the items of the given list to items of a new list,
  * according to a `map` function.
  */
-export function map<T, R>(list: ObservableLike<T[]>, map: (item: T) => R): ObservableLike<R[]> {
+export function map<T, R>(list: ReadonlyObservable<T[]>, map: (item: T) => R): Observable<R[]> {
   const src: T[] = value(list)
   const dst: R[] = src.map(map)
 
@@ -575,7 +597,7 @@ export function map<T, R>(list: ObservableLike<T[]>, map: (item: T) => R): Obser
     })
   }
 
-  return proxy
+  return new Observable(dst)
 }
 
 
@@ -741,6 +763,39 @@ export class Observable<T> extends ReadonlyObservable<T> {
 
 
 /**
+ * A copy of an object of type `T`, where every property is an observable property.
+ */
+export type ObservedObject<T extends object> = {
+  [key in keyof T]: Observable<T[key]>
+}
+
+/**
+ * Returns a wrapper around the given object that watches property of said object.
+ */
+export function watchProperties<T extends object>(obj: T): T & { _: ObservedObject<T> } {
+  const watched: any = {}
+
+  for (let prop in obj)
+    watched[prop] = observable(obj[prop])
+
+  return new Proxy<T & { _: ObservedObject<T> }>(watched as any, {
+    get: (_, p) => p === '_' ? watched : watched[p].value,
+    set: (_, p, v) => {
+      if (typeof p !== 'string')
+        return false
+
+      if (p in watched)
+        watched[p].value = v
+      else
+        watched[p] = observable(v)
+
+      return true
+    }
+  })
+}
+
+
+/**
  * {T} if {T} is {Observable}, and {Observable<T>} otherwise.
  */
 export type Obs<T> = T extends Observable<infer _> ? T : Observable<T>
@@ -754,9 +809,9 @@ export type ObservableLike<T> = T | Observable<T>
 /**
  * Returns whether the given value is an `Observable` stream.
  */
-export function isObservable<T>(value: ObservableLike<T>): value is Observable<T> {
+export function isObservable<T>(value: ReadonlyObservable<T> | T): value is ReadonlyObservable<T> {
   // @ts-ignore
-  return value != null && typeof value.subscribe == 'function'
+  return value != null && typeof value.subscribe == 'function' && 'value' in value
 }
 
 /**
@@ -764,7 +819,7 @@ export function isObservable<T>(value: ObservableLike<T>): value is Observable<T
  *
  * If the given value is already an `Observable` stream, it is returned.
  */
-export function observable<T>(value: ObservableLike<T>): Obs<T> {
+export function observable<T>(value: Observable<T> | T): T extends Observable<any> ? T : Observable<T> {
   // @ts-ignore
   return isObservable(value) ? value : new Observable<T>(value)
 }
@@ -774,7 +829,7 @@ export function observable<T>(value: ObservableLike<T>): Obs<T> {
  *
  * If the given observable is, in fact, not an observable, it is directly returned.
  */
-export function value<T>(value: ObservableLike<T>): T extends Observable<infer V> ? V : T {
+export function value<T>(value: ReadonlyObservable<T> | T): T extends ReadonlyObservable<infer V> ? V : T {
   // @ts-ignore
   return isObservable(value) ? value.value : value
 }

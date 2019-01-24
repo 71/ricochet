@@ -34,6 +34,7 @@ const TodoApp = ({ pageTitle, todos = [], text = '' }: { pageTitle: string, todo
   )
 }
 
+
 // @ts-ignore
 const pageTitle = new window.runtime.Observable('Hello world')
 

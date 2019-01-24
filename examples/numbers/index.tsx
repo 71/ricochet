@@ -1,5 +1,4 @@
-import { Observable, observable } from '../../src/runtime'
-import { map }                    from '../../src/runtime/map'
+import { Observable } from '../../src/runtime'
 
 const numbers: Observable<number[]> = new Observable([])
 
@@ -27,7 +26,7 @@ document.body.appendChild(
 
 document.body.appendChild(
   <ul>
-    { (parent: HTMLUListElement) => map(parent, numbers, i => <li>{observable(i).value + 1}</li>) }
+    { numbers.map(x => x.map(i => <li>{i + 1}</li>)) }
   </ul>
 )
 
