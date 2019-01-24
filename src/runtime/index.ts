@@ -175,8 +175,9 @@ export function hhh<E extends HTMLElement>(
  *
  * Not intended for direct use.
  */
-export function destroy(this: JSX.Element) {
-  let node = this || arguments[0]
+export function destroy(node?: Node & Partial<JSX.Element>) {
+  if (node === undefined)
+    node = this
 
   node.remove()
 
@@ -189,111 +190,265 @@ export function destroy(this: JSX.Element) {
     node.ondestroy()
 }
 
-
 /**
- * A node used to track nested node trees during rendering.
+ * Destroys the nodes in the range [prev, next[.
  */
-interface RenderNode {
+function destroyRecursively(prevIncluded: Node, nextExcluded: Node): void {
+  if (prevIncluded == nextExcluded)
+    return
 
+  destroyRecursively(prevIncluded.nextSibling, nextExcluded)
+  destroy(prevIncluded)
 }
 
-/**
- * Creates a hidden node that can be used to delimit groups of nodes.
- */
-function createInsertionPoint(): Node {
-  return new Text('')
-}
 
 /**
  * Renders the given node and all of its nested elements into the given parent,
  * and subscribes for future changes in order to re-render the needed parts.
  */
 function render(parent: Element, node: NestedNode, subscriptions: Rx.Unsubscribable[]) {
-  function r(node: NestedNode, insertionPoint: Node): Node {
+  // The `r` function renders a node recursively between `prev` and `next`.
+  //
+  // Nodes are **always** inserted before `next`, and the `prev` node
+  // **must** be updated when a new nodes are added somewhere. It represents
+  // the current node.
+
+  function r(node: NestedNode, prev: { value: Node }, next: { value: Node }): void {
     if (node == null)
-      return undefined
-
-    if (isObservable(node)) {
-      // We've got ourselves an observable value, so we add elements recursively,
-      // subscribe for changes to repeat this operation, and create a new insertion
-      // point for the previous sibling.
-
-      const childInsertionPoint = parent.insertBefore(createInsertionPoint(), insertionPoint)
-      const insertedChildren = []
-
-      renderObservable(parent, node)
-
-      const renderChild = () => {
-        insertedChildren.forEach(destroy)
-        map(parent, node, )
-        r(v, insertionPoint)
-      }
-
-      subscriptions.push(node.subscribe(renderChild))
-      r(node.value, insertionPoint)
-
-      return childInsertionPoint
-    }
+      return
 
     if (Array.isArray(node)) {
       if (node.length == 0)
-        return undefined
+        return
 
       // Insert nodes in reverse order before the insertion point.
       // This allows us to start at the insertion point, and update the insertion
       // point for the previous node when finishing a loop.
 
-      for (let i = node.length - 1; i != 0; i--) {
-        insertionPoint = r(node[i], insertionPoint) || insertionPoint
+      for (let i = node.length - 1; i > 0; i--) {
+        // First:
+        // r(node[0] , prev, childPrev)
+
+        // Last:
+        // r(node[-1], childNext, next)
+
+        const childPrev = { value: undefined }
+
+        r(node[i], childPrev, next)
+
+        next = childPrev
 
         // If the recursive call returned 'null', then no new elements have been inserted,
         // so we can just re-use the previous insertion point. Otherwise we use the one
         // provided by the recursive call.
       }
 
-      return insertionPoint
+      r(node[0], prev, next)
+
+      return
+    }
+
+    if (isObservable(node)) {
+      // We've got ourselves an observable value, so we add elements recursively,
+      // subscribe for changes to repeat this operation, and create a new insertion
+      // point for the previous sibling.
+
+      if (Array.isArray(node.value)) {
+        const firstPrev = prev
+        const lastNext = next
+
+        const src = node.value
+
+        // Stores the node that comes after the node at index src[i]
+        // Therefore the node that comes before src[i] is src[i - 1] || childInsertionPoint
+        const renderedNodes: { value: Node }[] = []
+
+        const proxy = createArrayProxy<NestedNode>(src, {
+          get: (i   ) => src[i],
+          set: (i, v) => {
+            let prev = renderedNodes[i - 1] || firstPrev
+            let next = renderedNodes[i]
+
+            destroyRecursively(prev.value, next.value)
+
+            src[i] = v
+
+            r(v, prev, next)
+          }
+        },
+        // @ts-ignore (TypeScript ignores 'Partial' for some reason)
+        {
+          splice: (start: number, deleteCount: number, ...items: NestedNode[]) => {
+            let next = renderedNodes[start + deleteCount]
+
+            // Delete some items
+            if (deleteCount > 0) {
+              const prev = renderedNodes[start - 1] || firstPrev
+
+              destroyRecursively(prev.value, next.value)
+
+              if (start > 0)
+                renderedNodes[start - 1] = next
+            }
+
+            // And create some more
+            const generated = []
+
+            for (let i = items.length - 1; i >= 0; i--) {
+
+              r(items[i], next, next)
+
+              generated.push(next)
+            }
+
+            // And update the arrays
+            renderedNodes.splice(start, deleteCount, ...generated)
+
+            return src.splice(start, deleteCount, ...items)
+          },
+
+          pop: () => {
+            if (src.length == 0)
+              return
+
+            const prev = renderedNodes[renderedNodes.length - 2] || firstPrev
+            const next = renderedNodes.pop()
+
+            destroyRecursively(prev.value, next.value)
+
+            prev.value = next.value
+
+            return src.pop()
+          },
+          shift: () => {
+            if (src.length == 0)
+              return
+
+            const prev = firstPrev
+            const next = renderedNodes.shift()
+
+            destroyRecursively(prev.value, next.value)
+
+            prev.value = next.value
+
+            return src.shift()
+          },
+
+          push: (...items: NestedNode[]): number => {
+            let next = renderedNodes[renderedNodes.length - 1] || lastNext
+            let prev = renderedNodes[renderedNodes.length - 2] || firstPrev
+            let generated = []
+
+            for (let i = items.length - 1; i > 0; i--) {
+              const childPrev = { value: undefined }
+
+              r(node[i], childPrev, next)
+
+              generated.unshift(next)
+              next = childPrev
+            }
+
+            r(items[0], prev, next)
+
+            renderedNodes.push(prev, ...generated)
+
+            return src.push(...items)
+          },
+          unshift: (...items: NestedNode[]): number => {
+            let next = renderedNodes[0] || lastNext
+            let prev = firstPrev
+            let generated = []
+
+            for (let i = items.length - 1; i > 0; i--) {
+              const childPrev = { value: undefined }
+
+              r(node[i], childPrev, next)
+
+              generated.unshift(next)
+              next = childPrev
+            }
+
+            r(items[0], prev, next)
+
+            renderedNodes.push(prev, ...generated)
+
+            return src.push(...items)
+          },
+
+          reverse: () => {
+            Array.prototype.reverse.call(proxy)
+
+            return proxy
+          },
+
+          sort: (compareFn?: (a: NestedNode, b: NestedNode) => number) => {
+            Array.prototype.sort.call(proxy, compareFn)
+
+            return proxy
+          },
+
+          fill: (value: NestedNode, start?: number, end?: number) => {
+            Array.prototype.fill.call(proxy, value, start, end)
+
+            return proxy
+          },
+
+          copyWithin: () => {
+            throw new Error('Cannot copy withing an observable list.')
+          }
+        })
+
+        node.setUnderlyingValue(proxy)
+
+        subscriptions.push({ unsubscribe: () => node.setUnderlyingValue(src) })
+
+        return
+      }
+
+      const renderChild = () => {
+        // When we render the child, we simply remove the previously
+        // rendered children, and replace them by the new ones.
+        // The inserted children are the ones inserted after the child insertion point,
+        // but before the insertion point given to us.
+        destroyRecursively(prev.value, next.value)
+
+        r(node.value, prev, next)
+      }
+
+      subscriptions.push(node.subscribe(renderChild))
+      r(node.value, prev, next)
+
+      return
     }
 
     // The next element is constant, so there is no need to generate an insertion point;
     // instead we'll just pass the element itself to the previous sibling, since it is
     // guaranteed the current element won't move.
 
-    return parent.insertBefore(node instanceof Node ? node : new Text(node), insertionPoint)
+    prev.value = parent.insertBefore(node instanceof Node ? node : new Text(node), next.value)
   }
 
-  r(node, undefined)
+  r(node, { value: undefined }, { value: undefined })
 }
 
-
-/**
- *
- */
-class ReactiveItem<T> {
-  constructor(
-    public value: Obs<T>,
-    public index: Observable<number>,
-    public node : NestedNode
-  ) {}
-}
 
 /**
  * Creates a `Proxy` around an array that can listen to changes to said array,
  * and update elements in a reactive list without unnecessary processing.
- *
- * `T` is the type of the source array.
- * `R` is the type of the destination array.
  */
-function createArrayProxy<T, R = T>(
+function createArrayProxy<T>(
   values: T[],
-  traps : Partial<(T | R)[]> & { get: (i: number) => R, set: (i: number, v: T) => void }
-): R[] {
+  getset: { get: (i: number) => T,
+            set: (i: number, v: T) => void },
+  traps : Partial<T[]>,
+): T[] {
   return new Proxy(values, {
     get: (values, p) => {
       if (p === 'underlying')
         return values
 
       if (typeof p == 'number')
-        return traps.get(p)
+        return getset.get(p)
 
       if (typeof p == 'string') {
         const trap = traps[p] as unknown as Function
@@ -310,7 +465,7 @@ function createArrayProxy<T, R = T>(
         if (p < 0 || p > values.length)
           return false
 
-        traps.set(p, value)
+        getset.set(p, value)
         return true
       }
 
@@ -320,248 +475,8 @@ function createArrayProxy<T, R = T>(
       values[p] = value
       return true
     }
-  }) as unknown[] as R[]
-}
-
-/**
- * Given a parent element, a source list, and a way to render each element
- * of the list, sets up a reactive component that only re-renders children
- * when needed, and wraps each list call into an efficient render-update method.
- */
-function renderObservable(
-  parent: Element,
-  node  : NestedNode
-) {
-  let totalLength = 0
-
-  const values: Obs<T>[] = []
-  const reactiveItems: ReactiveItem<T>[] = []
-
-  const parent = insertionPoint.parentElement
-  const vals = isObservable(list) ? list.value : list
-
-  if (vals) {
-    for (let i = 0; i < vals.length; i++) {
-      const obs = observable(vals[i])
-      const index = new Observable(i)
-
-      // @ts-ignore
-      const elements = flatten(computeElements(obs.value, index.value, obs, index))
-
-      const localInsertionPoint = createInsertionPoint()
-
-      parent.appendChild(localInsertionPoint)
-
-      values.push(obs)
-      reactiveItems.push(new ReactiveItem(obs, index, elements, localInsertionPoint))
-
-      elements.forEach(parent.appendChild.bind(parent))
-      totalLength += elements.length
-    }
-  }
-
-  parent.append(insertionPoint)
-
-  function splice(
-    reactiveItems: ReactiveItem<T>[],
-    values       : Obs<T>[],
-    start        : number,
-    deleteCount  : number,
-    ...items     : Obs<T>[]
-  ): Obs<T>[] {
-    if (start < 0)
-      throw new Error('Invalid start number.')
-
-    // Find next sibling for insertion
-    let nextSibling = insertionPoint
-
-    if (items.length > 0) {
-      for (let i = start; i < reactiveItems.length; i++) {
-        const elts = reactiveItems[i].elts
-
-        if (elts.length == 0)
-          continue
-
-        nextSibling = elts[0]
-        break
-      }
-    }
-
-    // Transform each item into a reactive element
-    const reactiveToInsert: ReactiveItem<T>[] = []
-
-    for (let i = 0; i < items.length; i++) {
-      const insertionPoint = createInsertionPoint()
-
-      parent.insertBefore(insertionPoint, nextSibling)
-
-      let item = items[i]
-
-      if (!isObservable(item))
-        // @ts-ignore
-        item = items[i] = new Observable<T>(item)
-
-      const index = new Observable(start++)
-      // @ts-ignore
-      const elements = flatten(computeElements(item.value, index.value, item, index))
-
-      reactiveToInsert.push(new ReactiveItem(item, index, elements, insertionPoint))
-
-      elements.forEach(x => nextSibling.parentElement.insertBefore(x, insertionPoint))
-      totalLength += elements.length
-    }
-
-    for (const reactiveItem of reactiveItems.splice(start, deleteCount, ...reactiveToInsert)) {
-      reactiveItem.destroy()
-      totalLength -= reactiveItem.elts.length
-    }
-
-    return values.splice(start, deleteCount, ...items)
-  }
-
-  const proxy = createArrayProxy<NestedNode>(values, {
-    get: (i) => ,
-    set: (i, v) => ,
-
-    splice(start: number, deleteCount: number, ...items: Obs<T>[]): Obs<T>[] {
-      return splice(this, values, start, deleteCount, ...items)
-    },
-
-    pop(): Obs<T> | undefined {
-      if (this.length == 0)
-        return
-
-      this.pop().destroy()
-
-      return values.pop()
-    },
-    shift(): Obs<T> | undefined {
-      if (this.length == 0)
-        return
-
-      this.shift().destroy()
-
-      return values.shift()
-    },
-
-    push(...items: Obs<T>[]): number {
-      splice(this, values, values.length, 0, ...items)
-
-      return this.length
-    },
-    unshift(...items: Obs<T>[]): number {
-      splice(this, values, 0, 0, ...items)
-
-      return this.length
-    },
-
-    reverse(): Obs<T>[] {
-      const len = this.length / 2
-      const nextNode = insertionPoint.nextSibling
-
-      for (let i = 0; i < len; i++) {
-        const a = this[i],
-              b = this[this.length - 1 - i]
-
-        // Swap elements
-        const afterA = a.insertionPoint
-        const afterB = b.insertionPoint
-        const parent = insertionPoint.parentElement
-
-        a.elts.forEach(x => parent.insertBefore(x, afterB))
-        b.elts.forEach(x => parent.insertBefore(x, afterA))
-
-        // Swap insertion points
-        a.insertionPoint = afterB
-        b.insertionPoint = afterA
-
-        // Swap in source arrays
-        this[i] = b
-        this[this.length - 1 - i] = a
-
-        values[i] = b.value
-        values[this.length - 1 - i] = a.value
-
-        // Update indices
-        a.index.value = this.length - 1 - i
-        b.index.value = i
-      }
-
-      if (nextNode != insertionPoint)
-        parent.insertBefore(insertionPoint, nextNode)
-
-      return values
-    },
-
-    sort(compareFn?: (a: Obs<T>, b: Obs<T>) => number): Obs<T>[] {
-      // The default implementation is likely faster than something I can
-      // come up quickly, so we use it, and then substitue values
-      if (this.length == 0)
-        return []
-
-      // @ts-ignore
-      this.sort(compareFn != null ? (a, b) => compareFn(a.value.value, b.value.value) : undefined)
-
-      const parent = insertionPoint.parentElement
-
-      for (let i = 0; i < this.length; i++) {
-        // Update reactive item
-        const item = this[i]
-
-        item.index.value = i
-
-        // Push element to end of children
-        // Since every element is pushed to end in order,
-        // this will put them all in their place
-        item.elts.forEach(x => parent.insertBefore(x, insertionPoint))
-        parent.insertBefore(item.insertionPoint, insertionPoint)
-
-        // Update item
-        values[i] = item.value
-      }
-
-      return values
-    },
-
-    fill(value: T | Obs<T>, start?: number, end?: number): Obs<T>[] {
-      if (start == null)
-        start = 0
-      if (end == null)
-        end = this.length
-
-      if (isObservable(value))
-        value = value.value as T
-
-      for (let i = start; i < end; i++)
-        this[i].value.value = value
-
-      return values
-    },
-
-    indexOf(obs: Obs<T>) {
-      if (isObservable(obs))
-        return values.indexOf(obs)
-
-      return values.findIndex(x => x.value === obs)
-    },
-
-    copyWithin(target: number, start: number, end?: number): Obs<T>[] {
-      throw new Error('Cannot copy within a reactive list.')
-    }
   })
-
-  if (isObservable(list)) {
-    // @ts-ignore
-    list.setUnderlyingValue(proxy)
-
-    list.subscribe(x => {
-      // Maybe we could try doing a diff between the two lists and update
-      // accordingly, but right now we don't.
-      proxy.splice(0, proxy.length, x as any)
-    })
-  }
 }
-
 
 
 /**
@@ -572,31 +487,36 @@ export function map<T, R>(list: ObservableLike<T[]>, map: (item: T) => R): Obser
   const src: T[] = value(list)
   const dst: R[] = src.map(map)
 
-  const proxy = createArrayProxy<T, R>(src, {
-    get: (i   ) => dst[i],
-    set: (i, v) => dst[i] = map(v),
+  const proxy = createArrayProxy<T>(src, {
+    get: (i   ) => src[i],
+    set: (i, v) => {
+      src[i] = v
+      dst[i] = map(v)
+    },
+  },
+  // @ts-ignore (TypeScript ignores 'Partial' for some reason)
+  {
+    splice: (start: number, deleteCount: number, ...items: T[]): T[] => {
+      dst.splice(start, deleteCount, ...items.map(map))
 
-    splice: (start: number, deleteCount: number, ...items: T[]): R[] => {
-      src.splice(start, deleteCount, ...items)
-
-      return dst.splice(start, deleteCount, ...items.map(map))
+      return src.splice(start, deleteCount, ...items)
     },
 
-    pop: (): R | undefined => {
+    pop: (): T | undefined => {
       if (src.length == 0)
         return
 
-      src.pop()
+      dst.pop()
 
-      return dst.pop()
+      return src.pop()
     },
-    shift: (): R | undefined => {
+    shift: (): T | undefined => {
       if (src.length == 0)
         return
 
-      src.shift()
+      dst.shift()
 
-      return dst.shift()
+      return src.shift()
     },
 
     push: (...items: T[]): number => {
@@ -612,47 +532,31 @@ export function map<T, R>(list: ObservableLike<T[]>, map: (item: T) => R): Obser
       return src.length
     },
 
-    reverse: (): R[] => {
+    reverse: (): T[] => {
+      dst.reverse()
       src.reverse()
 
-      return dst.reverse()
+      return proxy
     },
 
-    sort: (compareFn?: (a: T, b: T) => number): R[] => {
+    sort: (compareFn?: (a: T, b: T) => number): T[] => {
       // The default implementation is likely faster than something I can
       // come up quickly, so I use it, and then substitue values
       if (src.length == 0)
         return []
 
-      src.sort(compareFn)
+      // If I understand correctly, Array.sort calls `get` and `set` defined above,
+      // so sorting the source array will also sort the destination array.
+      Array.prototype.sort.call(proxy, compareFn)
 
-      // FIXME
-      return dst.sort(compareFn === undefined ? undefined : (a, b) => compareFn(map(a), map(b)))
-
-      // const parent = this[0].elt.parentElement!!
-
-      // for (let i = 0; i < this.length; i++) {
-      //   // Update reactive item
-      //   const item = this[i]
-
-      //   item.index.value = i
-
-      //   // Push element to end of children
-      //   // Since every element is pushed to end in order,
-      //   // this will put them all in their place
-      //   parent.insertBefore(item.elt, nextMarker)
-
-      //   // Update item
-      //   values[i] = item.value
-      // }
-
-      // return values
+      return proxy
     },
 
-    fill: (value: T, start?: number, end?: number): R[] => {
+    fill: (value: T, start?: number, end?: number): T[] => {
+      dst.fill(map(value), start, end)
       src.fill(value, start, end)
 
-      return dst.fill(map(value), start, end)
+      return proxy
     },
 
     copyWithin: () => {
