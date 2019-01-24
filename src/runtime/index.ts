@@ -398,21 +398,15 @@ function render(parent: Element, node: NestedNode, subscriptions: Rx.Unsubscriba
           },
 
           reverse: () => {
-            Array.prototype.reverse.call(proxy)
-
-            return proxy
+            return Array.prototype.reverse.call(proxy)
           },
 
           sort: (compareFn?: (a: NestedNode, b: NestedNode) => number) => {
-            Array.prototype.sort.call(proxy, compareFn)
-
-            return proxy
+            return Array.prototype.sort.call(proxy, compareFn)
           },
 
           fill: (value: NestedNode, start?: number, end?: number) => {
-            Array.prototype.fill.call(proxy, value, start, end)
-
-            return proxy
+            return Array.prototype.fill.call(proxy, value, start, end)
           },
 
           copyWithin: () => {
