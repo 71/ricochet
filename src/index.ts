@@ -5,9 +5,6 @@ import { NodePath, Scope } from '@babel/traverse'
 
 import * as runtime from './runtime/index'
 
-/** Whether assertions should be checked. */
-const ASSERTIONS = process.env.NODE_ENV != 'production'
-
 
 /**
  * Initialize the plugin.
@@ -50,7 +47,7 @@ export default ({ types: t, template: tpl }: typeof babel) => {
         pragma    : 'React.createElement',
 
         runtime: true,
-        runtimeImport: 'require("echo/runtime")',
+        runtimeImport: 'require("ricochet/runtime")',
         ... opts
       }
 
@@ -74,6 +71,8 @@ export default ({ types: t, template: tpl }: typeof babel) => {
    * Defines a dependency to an unknown external value.
    */
   class Dependency {
+    private id: t.Identifier
+
     constructor(
       /**
        * The expression of the value of the dependency.
@@ -84,11 +83,61 @@ export default ({ types: t, template: tpl }: typeof babel) => {
        * Whether the dependency is assigned to in the element expression,
        * in which case it **must** be converted to an observable value.
        */
-      public isAssignedTo: boolean
+      public isAssignedTo: boolean,
+
+      /**
+       * A list of the usages of the dependency.
+       */
+      public usages: t.Expression[]
     ) {}
 
+    /**
+     * Returns a unique identifier that can be used to refer to this expression.
+     */
+    getIdentifier(scope: Scope) {
+      return this.id || (this.id = scope.generateUidIdentifierBasedOnNode(this.value, 'dep'))
+    }
+
+    /**
+     * Returns whether the expression of the dependency and the given expression
+     * match.
+     */
     matches(expr: t.Expression): boolean {
-      throw new Error('Not implemented.')
+      function matchRecursively(a: t.Node, b: t.Node) {
+        if (a == null)
+          return b == null
+        if (b == null)
+          return false
+
+        if (a.type != b.type)
+          return false
+
+        // @ts-ignore
+        const fields: Record<string, any> = t.NODE_FIELDS[a.type]
+        // @ts-ignore
+        const visitorKeys: string[] = t.VISITOR_KEYS[a.type]
+
+        for (let i = 0; i < fields.length; i++) {
+          const field = fields[i]
+
+          if (visitorKeys.includes(field) || ['optional', 'typeAnnotation', 'decorators'].includes(field))
+            continue
+
+          if (a[field] != b[field])
+            return false
+        }
+
+        for (let i = 0; i < visitorKeys.length; i++) {
+          const field = visitorKeys[i]
+
+          if (!matchRecursively(a[field], b[field]))
+            return false
+        }
+
+        return true
+      }
+
+      return matchRecursively(this.value, expr)
     }
   }
 
@@ -220,7 +269,7 @@ export default ({ types: t, template: tpl }: typeof babel) => {
         delete replacements[prop]
       }
 
-      for (const runtimeMethod of ['addElement', 'destroy', 'isObservable', 'map', 'observable']) {
+      for (const runtimeMethod of ['destroy', 'isObservable', 'map', 'observable']) {
         if (allowedSubstitutions.indexOf(runtimeMethod) != -1)
           replacements['$' + runtimeMethod] = this.makeRuntimeMemberExpression(runtimeMethod as keyof typeof runtime)
       }
@@ -588,6 +637,8 @@ export default ({ types: t, template: tpl }: typeof babel) => {
 
   return <PluginObj>{
     name: 'ricochet',
+
+    inherits: require('@babel/plugin-transform-react-jsx'),
 
     visitor: {
       Program(_, state) {
