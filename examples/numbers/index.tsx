@@ -26,7 +26,7 @@ document.body.appendChild(
 
 document.body.appendChild(
   <ul>
-    { nums.map(i => <li>{i + 1}</li>) }
+    { nums.map(i => <li>{i}</li>) }
   </ul>
 )
 

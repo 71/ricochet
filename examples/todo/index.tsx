@@ -18,7 +18,7 @@ const TodoApp = ({ pageTitle, todos = [], text = '' }: { pageTitle: string, todo
              oninput={() => text = textBox.value} />
 
       { text != '' &&
-        <button onclick={() => (todos.push({ text, done: false })) && (text = '')} />
+        <button onclick={() => (todos.push({ text, done: false })) && (text = '')}>Add todo</button>
       }
 
       <ul class={pageTitle == 'Home' ? 'home-list' : ''}>

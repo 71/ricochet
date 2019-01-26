@@ -99,7 +99,7 @@ export function rie<Tag extends string>(
           return
         }
 
-        el[attr] = '' + value
+        el[attr] = value
       }
 
       const value = attrs[attr]
@@ -116,9 +116,8 @@ export function rie<Tag extends string>(
       (children || (children = [])).unshift(attrs.children)
   }
 
-  if (children != null && children.length > 0) {
+  if (children != null && children.length > 0)
     render(el, children, subscriptions)
-  }
 
   return el
 }
@@ -212,7 +211,7 @@ export function destroy(node?: Node & Partial<JSX.Element>) {
  * Destroys the nodes in the range [prev, next[.
  */
 function destroyRecursively(prevIncluded: Node, nextExcluded: Node): void {
-  if (prevIncluded == nextExcluded)
+  if (prevIncluded == null || prevIncluded == nextExcluded)
     return
 
   destroyRecursively(prevIncluded.nextSibling, nextExcluded)
@@ -232,7 +231,7 @@ function render(parent: Element, node: NestedNode, subscriptions: Rx.Unsubscriba
   // the current node.
 
   function r(node: NestedNode, prev: { value: Node }, next: { value: Node }): void {
-    if (node == null)
+    if (!node)
       return
 
     if (Array.isArray(node)) {
@@ -409,6 +408,14 @@ function render(parent: Element, node: NestedNode, subscriptions: Rx.Unsubscriba
             throw new Error('Cannot copy withing an observable list.')
           }
         })
+
+        for (let i = node.value.length - 1; i > 0; i--) {
+          const childPrev = { value: undefined }
+
+          r(node.value[i], childPrev, next)
+
+          next = childPrev
+        }
 
         // @ts-ignore
         node.val = proxy
