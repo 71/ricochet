@@ -76,55 +76,48 @@ export function rie<Tag extends string>(
 ): AnyElement<Tag, HTMLElement> {
   const el = document.createElement(tag) as any as AnyElement<Tag, HTMLElement>
 
-  if (attrs == null)
-    return el
+  if (attrs != null) {
+    for (let attr in attrs) {
+      const setValue = (value: any) => {
+        if (value == null)
+          return
 
-  for (let attr in attrs) {
-    const setValue = (value: any) => {
-      if (value == null)
-        return
+        if (attr == 'class' || attr == 'className') {
+          attr = 'className'
 
-      if (attr == 'class' || attr == 'className') {
-        attr = 'className'
+          if (Array.isArray(value))
+            value = value.join(' ')
+          else if (typeof value == 'object')
+            value = Object.keys(value).filter(x => value[x]).map(x => value[x].toString()).join(' ')
+        } else if (attr == 'style') {
+          if (typeof value == 'object') {
+            Object.assign(el.style, value)
+          } else {
+            el.setAttribute('style', '' + value)
+          }
 
-        if (Array.isArray(value))
-          value = value.join(' ')
-        else if (typeof value == 'object')
-          value = Object.keys(value).filter(x => value[x]).map(x => value[x].toString()).join(' ')
-      } else if (attr == 'style') {
-        if (typeof value == 'object') {
-          Object.assign(el.style, value)
-        } else {
-          el.setAttribute('style', '' + value)
+          return
         }
 
-        return
+        el[attr] = '' + value
       }
 
-      el[attr] = '' + value
+      const value = attrs[attr]
+
+      if (isObservable(value)) {
+        subscriptions.push(value.subscribe(setValue))
+        setValue(value.value)
+      } else {
+        setValue(value)
+      }
     }
 
-    const value = attrs[attr]
-
-    if (isObservable(value)) {
-      subscriptions.push(value.subscribe(setValue))
-      setValue(value.value)
-    } else {
-      setValue(value)
-    }
+    if (attrs.children != null)
+      (children || (children = [])).unshift(attrs.children)
   }
 
-  if (children.length > 0) {
-    if (attrs.children)
-      // @ts-ignore
-      attrs.children.push(...children)
-    else
-      // @ts-ignore
-      attrs.children = children
-
-    render(el, attrs.children, subscriptions)
-  } else if (attrs.children) {
-    render(el, attrs.children, subscriptions)
+  if (children != null && children.length > 0) {
+    render(el, children, subscriptions)
   }
 
   return el
@@ -147,13 +140,16 @@ export function rc<P extends object, E extends HTMLElement, K extends Component<
   children     : NodeArray,
   subscriptions: Unsubscribable[]
 ): E {
-  if (children.length > 0) {
-    if (props.children)
+  if (children != null && children.length > 0) {
+    if (props == null)
       // @ts-ignore
-      props.children.push(...children)
-    else
+      props = { children }
+    else if (props.children == null)
       // @ts-ignore
       props.children = children
+    else
+      // @ts-ignore
+      props.children.push(...children)
   }
 
   const el = component(props) as RenderedElement<E>
@@ -414,7 +410,8 @@ function render(parent: Element, node: NestedNode, subscriptions: Rx.Unsubscriba
           }
         })
 
-        node.setUnderlyingValue(proxy)
+        // @ts-ignore
+        node.val = proxy
 
         subscriptions.push({ unsubscribe: () => node.setUnderlyingValue(src) })
 
@@ -582,7 +579,7 @@ export function map<T, R>(list: ReadonlyObservable<T[]>, map: (item: T) => R): O
 
   if (isObservable(list)) {
     // @ts-ignore
-    list.setUnderlyingValue(proxy)
+    list.val = proxy
 
     list.subscribe(x => {
       // Maybe we could try doing a diff between the two lists and update
@@ -693,6 +690,17 @@ export class ReadonlyObservable<T> implements Rx.Subscribable<T> {
 }
 
 /**
+ * Returns a value
+ */
+export function mirror<T>(observable: Observable<T>): T
+
+export function mirror<T>(value: T): [T, Observable<T>]
+
+export function mirror<T>(...args):any {
+  let a = arguments
+}
+
+/**
  * Defines an observable stream that notifies subscribers of a change of its underlying value,
  * and allows said value to be changed at any time.
  */
@@ -714,6 +722,10 @@ export class Observable<T> extends ReadonlyObservable<T> {
    * - When getting the value, only the last version is returned.
    * - When setting the value, also notifies all subscribers of the change.
    */
+  get value() {
+    return this.val
+  }
+
   set value(value: T) {
     this.updateValue(value)
   }
@@ -773,7 +785,7 @@ export function watchProperties<T extends object>(obj: T): T & { _: ObservedObje
     watched[prop] = observable(obj[prop])
 
   return new Proxy<T & { _: ObservedObject<T> }>(watched as any, {
-    get: (_, p) => p === '_' ? watched : watched[p].value,
+    get: (_, p) => p === '_' ? watched : value(watched[p]),
     set: (_, p, v) => {
       if (typeof p !== 'string')
         return false

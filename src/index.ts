@@ -72,30 +72,53 @@ export default ({ types: t, template: tpl }: typeof babel) => {
    */
   class Dependency {
     private id: t.Identifier
+    private anyPath: NodePath
 
     constructor(
       /**
-       * The expression of the value of the dependency.
+       * The object to which the dependency belongs.
        */
-      public value: t.Expression,
+      public readonly object: t.Identifier,
 
       /**
-       * Whether the dependency is assigned to in the element expression,
-       * in which case it **must** be converted to an observable value.
+       * A list of the assignments to the dependency.
        */
-      public isAssignedTo: boolean,
+      public readonly assignments: NodePath<t.AssignmentExpression>[],
 
       /**
        * A list of the usages of the dependency.
        */
-      public usages: t.Expression[]
-    ) {}
+      public readonly usages: NodePath<t.Expression>[],
+
+      /**
+       * A list of the usages of the dependency where we expect an observable.
+       */
+      public readonly observableUsages: NodePath<t.Expression>[]
+    ) {
+      this.anyPath = usages.length      > 0 ? usages[0]
+                   : assignments.length > 0 ? assignments[0]
+                   :                          observableUsages[0]
+    }
 
     /**
      * Returns a unique identifier that can be used to refer to this expression.
      */
-    getIdentifier(scope: Scope) {
-      return this.id || (this.id = scope.generateUidIdentifierBasedOnNode(this.value, 'dep'))
+    get identifier() {
+      return this.id || (this.id = this.anyPath.scope.generateUidIdentifierBasedOnNode(this.usages[0].node, 'dep'))
+    }
+
+    /**
+     * Returns the expression used to refer to this dependency.
+     */
+    get stateExpression() {
+      return t.memberExpression(this.object, this.identifier)
+    }
+
+    /**
+     * Returns the expression used to refer to the Observable that refers to this dependency.
+     */
+    get subscribableExpression() {
+      return t.memberExpression(t.memberExpression(this.object, t.identifier('_')), this.identifier)
     }
 
     /**
@@ -117,9 +140,7 @@ export default ({ types: t, template: tpl }: typeof babel) => {
         // @ts-ignore
         const visitorKeys: string[] = t.VISITOR_KEYS[a.type]
 
-        for (let i = 0; i < fields.length; i++) {
-          const field = fields[i]
-
+        for (const field in fields) {
           if (visitorKeys.includes(field) || ['optional', 'typeAnnotation', 'decorators'].includes(field))
             continue
 
@@ -137,7 +158,7 @@ export default ({ types: t, template: tpl }: typeof babel) => {
         return true
       }
 
-      return matchRecursively(this.value, expr)
+      return matchRecursively(this.usages[0].node, expr)
     }
   }
 
@@ -166,12 +187,23 @@ export default ({ types: t, template: tpl }: typeof babel) => {
     private readonly externalDependencies: Record<string, ExternalDependency>
 
     /**
+     * A list of all the dependencies referenced within the element being analyzed.
+     */
+    private readonly dependencies: Dependency[]
+
+    /**
+     * The identifier of the variable in which the local state is stored.
+     */
+    private stateObjectVar: t.Identifier
+
+    /**
      * Root call expression that is being processed.
      */
     private rootPath: NodePath<t.CallExpression>
 
     constructor(public plugin: PluginState, parent?: State) {
       this.externalDependencies = {}
+      this.dependencies = []
 
       if (!parent)
         return
@@ -188,24 +220,37 @@ export default ({ types: t, template: tpl }: typeof babel) => {
     }
 
     /**
-     * Returns whether the generated code will have access to the reactive runtime.
+     * Gets the dependency that corresponds to the given expression, or creates
+     * it if it does not exist.
      */
-    private get hasRuntime() {
-      return this.plugin.opts.runtime
-    }
+    private getDependency(path: NodePath<t.Expression>) {
+      const expr = path.isAssignmentExpression() ? path.node.left as t.Expression : path.node
 
+      for (let i = 0; i < this.dependencies.length; i++) {
+        const dep = this.dependencies[i]
 
-    /**
-     * Returns whether the given expression represents a call to `runtime.observable`.
-     */
-    private isObservableCall(callExpression: t.Node) {
-      if (callExpression.type != 'CallExpression')
-        return false
+        if (!dep.matches(expr))
+          continue
 
-      const callee = callExpression.callee
+        // Yay, we have a match
+        if (path.isAssignmentExpression()) {
+          dep.assignments.push(path)
+          dep.usages.push(path.get('left') as any)
+        } else {
+          dep.usages.push(path)
+        }
 
-      return (callee.type == 'Identifier' && callee.name == 'observable')
-          || (callee.type == 'MemberExpression' && t.isIdentifier(callee.property, { name: 'observable' }))
+        return dep
+      }
+
+      // Nay, we must create the match
+      const dep = path.isAssignmentExpression()
+        ? new Dependency(this.stateObjectVar, [ path ], [ path.get('left') as any ], [])
+        : new Dependency(this.stateObjectVar, [], [ path ], [])
+
+      this.dependencies.push(dep)
+
+      return dep
     }
 
 
@@ -282,34 +327,102 @@ export default ({ types: t, template: tpl }: typeof babel) => {
      * Create a member expression that represents a call to the specified method
      * of the runtime.
      */
-    private makeRuntimeMemberExpression(method: keyof typeof runtime) {
-      if (this.plugin.runtimeMemberPrefix == null)
-        return t.identifier(method)
-      else
-        return t.memberExpression(this.plugin.runtimeMemberPrefix, t.identifier(method))
+    private makeRuntimeMemberExpression(method: keyof typeof runtime, args?: t.Expression[]) {
+      const expr = this.plugin.runtimeMemberPrefix == null
+        ? t.identifier(method)
+        : t.memberExpression(this.plugin.runtimeMemberPrefix, t.identifier(method))
+
+      return args == undefined
+        ? expr
+        : t.callExpression(expr, args)
     }
 
 
     /**
-     * Returns all reactive variables referenced within the given node.
+     * Finds and tracks all reactive variables referenced within the given node.
      *
      * @param all Whether all expressions should be checked, even though they
      *   may not require an attribute update.
      */
-    private findDependencies(path: NodePath, all: boolean, dependencies: t.Identifier[]) {
-      if (!this.hasRuntime)
-        return
+    private findDependencies(path: NodePath, all: boolean): Dependency[] {
+      let dependencies: Dependency[] = []
+      let depth = 0
+
+      const ignoreIdentifier = (path: NodePath<t.Identifier>) => {
+        const binding = path.scope.getBinding(path.node.name)
+
+        if (binding && binding.kind != 'module' && binding.kind != 'const') {
+          // That value was found in the scope, so we have to watch it
+          // HOWEVER, it might be a parameter inside another function
+          // in the expression...
+          // Watch out for that
+          if (binding.kind as string == 'param') {
+            let scopePath = binding.scope.path
+
+            while (scopePath) {
+              if (scopePath == this.rootPath)
+                // Defined in the expression, so we don't care
+                return true
+
+              scopePath = scopePath.parentPath
+            }
+          }
+
+          return false
+        }
+
+        return true
+      }
 
       const dependencyFinder = <Visitor>{
+        CallExpression: (path) => {
+          if (this.plugin.isPragma(path.get('callee')))
+            path.skip()
+        },
+
+        AssignmentExpression: {
+          exit: (path) => {
+            if (depth == 0)
+              dependencies.push(this.getDependency(path))
+            else
+              this.getDependency(path)
+          }
+        },
+
+        MemberExpression: {
+          exit: (path) => {
+            // This will add the dependency automatically, no big deal
+            if (path.getData('process') !== false) {
+              if (depth == 0)
+                dependencies.push(this.getDependency(path))
+              else
+                this.getDependency(path)
+            }
+          }
+        },
+
         Identifier: (path) => {
-          if (!path.isExpression())
+          // Ditto.
+          let skip = ignoreIdentifier(path)
+
+          if (skip) {
+            let parent = path.parentPath
+
+            while (parent != null && !parent.isAssignmentExpression() && parent.isExpression()) {
+              parent.setData('process', false)
+              parent = parent.parentPath
+            }
+
             return
+          }
 
-          const id = path.node.name
-          const rep = this.externalDependencies[id]
-
-          if (rep && dependencies.indexOf(rep.id) == -1)
-            dependencies.push(rep.id)
+          // @ts-ignore
+          if (path.isExpression() || (path.parent.type == 'MemberExpression' && path.key == 'object')) {
+            if (depth == 0)
+              dependencies.push(this.getDependency(path))
+            else
+              this.getDependency(path)
+          }
         }
       }
 
@@ -322,8 +435,13 @@ export default ({ types: t, template: tpl }: typeof babel) => {
         // if 'all' is true though, we want ALL dependencies, even those
         // that do not trigger a value update, so we don't skip these bodies
 
-        dependencyFinder.ArrowFunctionExpression = (path) => path.skip()
-        dependencyFinder.FunctionExpression = (path) => path.skip()
+        const ignore = {
+          enter: () => { depth++ },
+          exit: () => { depth-- }
+        }
+
+        dependencyFinder.ArrowFunctionExpression = ignore
+        dependencyFinder.FunctionExpression = ignore
       }
 
       State.traverseIncludingRoot(path, dependencyFinder)
@@ -331,116 +449,113 @@ export default ({ types: t, template: tpl }: typeof babel) => {
       return dependencies
     }
 
-    /**
-     * Finds all references to external values (such as parameters or variables),
-     * and creates reactive versions of them, adding them to `externalDependencies`.
-     */
-    private findExternalDependencies(path: NodePath, all: boolean) {
-      const dependencyFinder = <Visitor>{
-        Identifier: (path) => {
-          // @ts-ignore
-          if (!path.isExpression() && !(path.parent.type == 'AssignmentExpression' && path.key == 'left'))
-            // Neither an expression nor the target of an assignment: we skip it
-            return
+    // /**
+    //  * Finds all references to external values (such as parameters or variables),
+    //  * and creates reactive versions of them, adding them to `externalDependencies`.
+    //  */
+    // private findExternalDependencies(path: NodePath, all: boolean) {
+    //   const dependencyFinder = <Visitor>{
+    //     Identifier: (path) => {
+    //       // @ts-ignore
+    //       if (!path.isExpression() && !(path.parent.type == 'AssignmentExpression' && path.key == 'left'))
+    //         // Neither an expression nor the target of an assignment: we skip it
+    //         return
 
-          const id = path.node.name
-          const existingDep = this.externalDependencies[id]
+    //       const id = path.node.name
+    //       const existingDep = this.externalDependencies[id]
 
-          const binding = path.scope.getBinding(id)
+    //       const binding = path.scope.getBinding(id)
 
-          if (existingDep && existingDep.scope == binding.scope)
-            return
+    //       if (existingDep && existingDep.scope == binding.scope)
+    //         return
 
-          if (binding && binding.kind != 'module' && binding.kind != 'const') {
-            // That value was found in the scope, so we have to watch it
-            // HOWEVER, it might be a parameter inside another function
-            // in the expression...
-            // Watch out for that
-            if (binding.kind as string == 'param') {
-              let scopePath = binding.scope.path
+    //       if (binding && binding.kind != 'module' && binding.kind != 'const') {
+    //         // That value was found in the scope, so we have to watch it
+    //         // HOWEVER, it might be a parameter inside another function
+    //         // in the expression...
+    //         // Watch out for that
+    //         if (binding.kind as string == 'param') {
+    //           let scopePath = binding.scope.path
 
-              while (scopePath) {
-                if (scopePath == this.rootPath)
-                  // Defined in the expression, so we don't care
-                  return
+    //           while (scopePath) {
+    //             if (scopePath == this.rootPath)
+    //               // Defined in the expression, so we don't care
+    //               return
 
-                scopePath = scopePath.parentPath
-              }
-            }
+    //             scopePath = scopePath.parentPath
+    //           }
+    //         }
 
-            this.externalDependencies[id] = new ExternalDependency(path.scope.generateUidIdentifier(id), binding.scope)
-          }
-        }
-      }
+    //         this.externalDependencies[id] = new ExternalDependency(path.scope.generateUidIdentifier(id), binding.scope)
+    //       }
+    //     }
+    //   }
 
-      if (!all) {
-        dependencyFinder.ArrowFunctionExpression = (path) => path.skip()
-        dependencyFinder.FunctionExpression = (path) => path.skip()
-      }
+    //   if (!all) {
+    //     dependencyFinder.ArrowFunctionExpression = (path) => path.skip()
+    //     dependencyFinder.FunctionExpression = (path) => path.skip()
+    //   }
 
-      State.traverseIncludingRoot(path, dependencyFinder)
-    }
+    //   State.traverseIncludingRoot(path, dependencyFinder)
+    // }
 
-    /**
-     * Replaces accesses to a reactive value by accesses to their underlying value.
-     *
-     * @param takeValue Replace accesses by `observable.value` instead of `observable`.
-     * @param all Replace accesses, even in inner functions.
-     */
-    private replaceReactiveAccesses(path: NodePath, takeValue: boolean, all: boolean) {
-      const replacer = <Visitor<{ takeValue: boolean[] }>>{
-        Identifier: (path, state) => {
-          // @ts-ignore
-          if (!path.isExpression() && !(path.parent.type == 'AssignmentExpression' && path.key == 'left'))
-            // Neither an expression nor the target of an assignment: we skip it
-            return
+    // /**
+    //  * Replaces accesses to a reactive value by accesses to their underlying value.
+    //  *
+    //  * @param takeValue Replace accesses by `observable.value` instead of `observable`.
+    //  * @param all Replace accesses, even in inner functions.
+    //  */
+    // private replaceReactiveAccesses(path: NodePath, takeValue: boolean, all: boolean) {
+    //   const replacer = <Visitor<{ takeValue: boolean[] }>>{
+    //     Identifier: (path, state) => {
+    //       // @ts-ignore
+    //       if (!path.isExpression() && !(path.parent.type == 'AssignmentExpression' && path.key == 'left'))
+    //         // Neither an expression nor the target of an assignment: we skip it
+    //         return
 
-          const rep = this.externalDependencies[path.node.name]
+    //       const rep = this.externalDependencies[path.node.name]
 
-          if (rep == null)
-            return
+    //       if (rep == null)
+    //         return
 
-          const takeValue = state.takeValue[state.takeValue.length - 1]
-                         && !this.isObservableCall(path.parentPath.node)
+    //       const takeValue = state.takeValue[state.takeValue.length - 1]
+    //                      && !this.isObservableCall(path.parentPath.node)
 
-          path.replaceWith(takeValue ? t.memberExpression(rep.id, t.identifier('value')) : rep.id)
-        }
-      }
+    //       path.replaceWith(takeValue ? t.memberExpression(rep.id, t.identifier('value')) : rep.id)
+    //     }
+    //   }
 
-      if (all) {
-        replacer.ArrowFunctionExpression = replacer.FunctionExpression = {
-          enter: (_: any, state) => { state.takeValue.push(true) },
-          exit : (_: any, state) => { state.takeValue.pop() }
-        }
-      } else {
-        replacer.ArrowFunctionExpression = (path) => path.skip()
-        replacer.FunctionExpression = (path) => path.skip()
-      }
+    //   if (all) {
+    //     replacer.ArrowFunctionExpression = replacer.FunctionExpression = {
+    //       enter: (_: any, state) => { state.takeValue.push(true) },
+    //       exit : (_: any, state) => { state.takeValue.pop() }
+    //     }
+    //   } else {
+    //     replacer.ArrowFunctionExpression = (path) => path.skip()
+    //     replacer.FunctionExpression = (path) => path.skip()
+    //   }
 
-      State.traverseIncludingRoot(path, replacer, { takeValue: [takeValue] })
-    }
+    //   State.traverseIncludingRoot(path, replacer, { takeValue: [takeValue] })
+    // }
 
     /**
      * Given the list of all the dependencies of an expression and the expression
      * of its computation, returns an observable stream that gets updated everytime
      * one of its dependencies changes.
      */
-    private makeComputedValueFromDependencies(dependencies: t.Identifier[], value: t.Expression) {
-      const isIdentity = dependencies.length == 1
-                      && t.isMemberExpression(value)
-                      && t.isIdentifier(value.property, { name: 'value' })
-                      && t.isIdentifier(value.object  , { name: dependencies[0].name })
+    private makeComputedValueFromDependencies(dependencies: Dependency[], value: t.Expression) {
+      const isIdentity = dependencies.length == 1 && dependencies[0].matches(value)
 
       if (isIdentity)
         //  computed([ foo ], () => foo.value)
         // becomes
         //  foo
-        return dependencies[0]
+        return value
 
       return t.callExpression(
         //  runtime.combine([ ...dependencies ], () => value)
         this.makeRuntimeMemberExpression('combine'),
-        [ t.arrayExpression(dependencies),
+        [ t.arrayExpression(dependencies.map(x => x.subscribableExpression)),
           t.arrowFunctionExpression([], value) ])
     }
 
@@ -464,6 +579,24 @@ export default ({ types: t, template: tpl }: typeof babel) => {
      * will become
      *
      * ```javascript
+     * const observables = {
+     *   checked: new Observable(checked)
+     * }
+     *
+     * const _ = {
+     *   _: observables
+     * }
+     *
+     * Object.defineProperty(_, 'checked', {
+     *   get: ( ) => observables.checked.value,
+     *   set: (v) => {
+     *     if (isObservable(v))
+     *       observables.checked = v
+     *     else
+     *       observables.checked.value = v
+     *   }
+     * })
+     *
      * const attributes = {
      *   type    : 'checkbox',
      *   checked : _.checked,
@@ -474,6 +607,11 @@ export default ({ types: t, template: tpl }: typeof babel) => {
      */
     private processAttributes(path: NodePath<t.ObjectExpression>) {
       const visitor = <Visitor>{
+        CallExpression: (path) => {
+          if (this.plugin.isPragma(path.get('callee')))
+            path.skip()
+        },
+
         ObjectProperty: (path) => {
           if (!t.isIdentifier(path.node.key))
             return path.skip()
@@ -485,21 +623,17 @@ export default ({ types: t, template: tpl }: typeof babel) => {
           if (key == 'class')
             (path.get('key') as NodePath<t.Identifier>).replaceWith(t.identifier('className'))
 
-          this.findExternalDependencies(path.get('value'), true)
-
-          const dependencies = path.node.value.type == 'Identifier'
-            ? (this.externalDependencies[key] ? [this.externalDependencies[key].id] : [])
-            : (this.findDependencies(path.get('value'), false, []))
+          const dependencies = this.findDependencies(path.get('value'), false)
 
           if (dependencies.length == 0) {
             // No reactive dependency, we can leave the attribute as-is
-            this.replaceReactiveAccesses(path, false, true)
+            // this.replaceReactiveAccesses(path, false, true)
 
             return path.skip()
           }
 
           // Replace value by computed property
-          this.replaceReactiveAccesses(path.get('value'), true, true)
+          // this.replaceReactiveAccesses(path.get('value'), true, true)
 
           path.get('value').replaceWith(
             this.makeComputedValueFromDependencies(dependencies, path.node.value as t.Expression))
@@ -577,10 +711,7 @@ export default ({ types: t, template: tpl }: typeof babel) => {
         // Normal expression: just add to siblings
 
         // Find dependencies to reactive properties
-        const dependencies: t.Identifier[] = []
-
-        this.findExternalDependencies(path, false)
-        this.findDependencies(path, false, dependencies)
+        const dependencies = this.findDependencies(path, false)
 
         if (dependencies.length == 0)
           // There are no dependencies, so we return the value directly
@@ -589,15 +720,13 @@ export default ({ types: t, template: tpl }: typeof babel) => {
         // Note: it is important to replace accesses AFTER finding
         // dependencies, since we would otherwise find no access
         // to external values
-        this.replaceReactiveAccesses(path, true, false)
+        // this.replaceReactiveAccesses(path, true, false)
 
         // There are reactive dependencies, so we transform
         //  firstName + lastName
         // into
         //  runtime.combine([firstName, lastName], () => firstName + lastName)
-        return this.makeComputedValueFromDependencies(
-          dependencies,
-          t.arrowFunctionExpression([], path.node))
+        return this.makeComputedValueFromDependencies(dependencies, path.node)
       }
     }
 
@@ -606,23 +735,56 @@ export default ({ types: t, template: tpl }: typeof babel) => {
      * Visits the given call expression.
      */
     visit(path: NodePath<t.CallExpression>) {
-      const watchedVar = path.scope.generateDeclaredUidIdentifier('watched')
+      const stateVar = path.scope.generateDeclaredUidIdentifier('state')
       const subscriptionsVar = path.scope.generateDeclaredUidIdentifier('subscriptions')
+
+      this.stateObjectVar = stateVar
+      this.rootPath = path
 
       // We don't use a Babel Visitor here because we only want to visit
       // the top node in 'path'
       const element = this.visitElement(path, subscriptionsVar)
-      const topLevelElement = t.callExpression(this.makeRuntimeMemberExpression('rtl'), [ element, subscriptionsVar ])
+      const topLevelElement = this.makeRuntimeMemberExpression('rtl', [ element, subscriptionsVar ])
 
-      const watchedObject = t.objectExpression(
-        Object.entries(this.externalDependencies)
-              .filter(([_, { createVar }]) => createVar)
-              .map(([dep, { id }]) => t.objectProperty(id, t.identifier(dep))))
+      const watchedObject =
+        t.objectExpression(
+          this.dependencies
+              .map(x =>
+                t.objectProperty(
+                  x.identifier,
+                  x.assignments.length > 0
+                    ? this.makeRuntimeMemberExpression('observable', [ x.usages[0].node ])
+                    : x.usages[0].node)))
+
+      for (const dep of this.dependencies) {
+        if (dep.usages.length <= dep.assignments.length)
+          continue
+
+        const member = dep.stateExpression
+
+        for (const usage of dep.usages) {
+          if (usage.parent.type == 'AssignmentExpression' && usage.key == 'left')
+            continue
+
+          usage.replaceWith(member)
+        }
+
+        for (const assignment of dep.assignments)
+          assignment.replaceWith(
+            t.assignmentExpression('=', member, assignment.node))
+
+        if (dep.observableUsages.length > 0) {
+          const observableMember = dep.subscribableExpression
+
+          for (const usage of dep.observableUsages)
+            usage.replaceWith(observableMember)
+        }
+      }
 
       path.replaceWith(
         [ t.assignmentExpression('=',
-            watchedVar,
-            t.callExpression(this.makeRuntimeMemberExpression('watchProperties'), [ watchedObject ]))
+            stateVar,
+            this.makeRuntimeMemberExpression('watchProperties', [ watchedObject ]))
         , t.assignmentExpression('=',
             subscriptionsVar,
             t.arrayExpression([]))
@@ -638,7 +800,7 @@ export default ({ types: t, template: tpl }: typeof babel) => {
   return <PluginObj>{
     name: 'ricochet',
 
-    inherits: require('@babel/plugin-transform-react-jsx'),
+    inherits: require('@babel/plugin-transform-react-jsx').default,
 
     visitor: {
       Program(_, state) {
@@ -662,8 +824,6 @@ export default ({ types: t, template: tpl }: typeof babel) => {
         path.scope.setData(dataKey, state)
 
         state.visit(path)
-
-        path.skip()
       }
     }
   }

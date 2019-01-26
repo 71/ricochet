@@ -1,6 +1,6 @@
-const Todo = ({ done, click = () => null }: { done: boolean, click?: EventListener }) => (
+const Todo = ({ done, click = () => null, ...props }: { done: boolean, click?: EventListener, children?: Node }) => (
   <li>
-    <slot />
+    {props.children}
     <input type='checkbox' checked={done}
            onclick={click}
            oninput={e => done = (e.target as HTMLInputElement).checked} />
@@ -18,7 +18,7 @@ const TodoApp = ({ pageTitle, todos = [], text = '' }: { pageTitle: string, todo
              oninput={() => text = textBox.value} />
 
       { text != '' &&
-        <button onclick={() => (todos = todos.concat({ text, done: false })) && (text = '')} />
+        <button onclick={() => (todos.push({ text, done: false })) && (text = '')} />
       }
 
       <ul class={pageTitle == 'Home' ? 'home-list' : ''}>
@@ -36,7 +36,7 @@ const TodoApp = ({ pageTitle, todos = [], text = '' }: { pageTitle: string, todo
 
 
 // @ts-ignore
-const pageTitle = new window.runtime.Observable('Hello world')
+const pageTitle = new runtime.Observable('Hello world')
 
 document.body.appendChild(<TodoApp pageTitle={pageTitle} />)
 
