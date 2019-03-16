@@ -6,7 +6,9 @@
     "declaration": true,
     "outDir": ".",
     "sourceMap": true,
-    "strict": false
+    "strict": false,
+    "jsx": "react",
+    "jsxFactory": "h"
   },
   "exclude": [
     "dist",

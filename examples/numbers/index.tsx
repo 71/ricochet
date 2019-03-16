@@ -1,12 +1,9 @@
-import { Observable } from '../../src/runtime'
+import { h, observableArray } from '../../src'
 
-const numbers: Observable<number[]> = new Observable([])
+const numbers = observableArray<number>([])
 
 for (let i = 0; i < 10; i++)
-  numbers.value.push(i)
-
-// @ts-ignore
-const nums: number[] = numbers
+  numbers.push(i)
 
 document.body.appendChild(
   <div>
@@ -18,15 +15,15 @@ document.body.appendChild(
       You can also access the global 'numbers' variable from the console,
       if you want to play with it.
     </p>
-    <button onclick={() => nums.reverse()}>Reverse</button>
-    <button onclick={() => nums.push(nums.length)}>Add number</button>
-    <button onclick={() => nums.sort((a, b) => a - b)}>Sort</button>
+    <button onclick={() => numbers.reverse()}>Reverse</button>
+    <button onclick={() => numbers.push(numbers.length)}>Add number</button>
+    <button onclick={() => numbers.sort((a, b) => a - b)}>Sort</button>
   </div>
 )
 
 document.body.appendChild(
   <ul>
-    { nums.map(i => <li>{i}</li>) }
+    { numbers.map(i => <li>{i}</li>) }
   </ul>
 )
 

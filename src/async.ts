@@ -1,4 +1,4 @@
-import { value, Component } from './index'
+import { Component } from './index'
 
 
 function replace(placeholder: Text, element: Element) {
@@ -56,18 +56,16 @@ export function Async<P extends {}, E extends Element, K extends {}>({ component
 export function Async<P extends {}, E extends Element>({ component, ...props }: P & { component: Promise<Component<P, E>> }): E
 
 export function Async<P extends {}, E extends Element, K extends {}>(
-  { component: _component, ..._props }:
+  { component, ...props }:
     (P & { component: Promise<Component<P, E>> }) |
     (P & { component: Component<P & K, E>, props: Promise<K> })
 ): E {
-  const placeholder = document.createTextNode(''),
-        component = value(_component),
-        props = value((_props as any)['props'] as Promise<P>)
+  const placeholder = document.createTextNode('')
 
   if (typeof component == 'function')
-    props.then(rest => replace(placeholder, component({ ... rest, ... _props } as any as P & K)))
+    props['props'].then(rest => replace(placeholder, component({ ...rest, ...props['props'] } as any as P & K)))
   else
-    component.then(component => replace(placeholder, component(_props as any as P)))
+    component.then(component => replace(placeholder, component(props as any as P)))
 
   return placeholder as any as E
 }

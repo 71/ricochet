@@ -1,3 +1,6 @@
+import { h, observableArray, reactive, Observable, Reactive } from '../../src'
+
+
 const Todo = ({ done, click = () => null, ...props }: { done: boolean, click?: EventListener, children?: Node }) => (
   <li>
     {props.children}
@@ -7,26 +10,26 @@ const Todo = ({ done, click = () => null, ...props }: { done: boolean, click?: E
   </li>
 )
 
-const TodoApp = ({ pageTitle, todos = [], text = '' }: { pageTitle: string, todos?: any[], text?: string }) => {
+const TodoApp = ({ pageTitle, todos = observableArray([]), text = reactive('') }: { pageTitle: string | Observable<string>, todos?: any[], text?: Reactive<string> }) => {
   let textBox: HTMLInputElement
 
   return (
     <div>
       <h1>{pageTitle}</h1>
 
-      <input type='text' value={text} ref={textBox}
-             oninput={() => text = textBox.value} />
+      <input type='text' value={text} ref={x => textBox = x}
+             oninput={() => text(textBox.value)} />
 
-      { text != '' &&
-        <button onclick={() => (todos.push({ text, done: false })) && (text = '')}>Add todo</button>
-      }
+      { text.map(txt => txt != '' &&
+        <button onclick={() => (todos.push({ text: reactive(txt), done: reactive(false) })) && text('')}>Add todo</button>
+      ) }
 
       <ul class={pageTitle == 'Home' ? 'home-list' : ''}>
         <li>What am I doing here?</li>
 
-        { todos.map(({ text, done }) => (
+        { todos.map(({ text, done }) =>
           <Todo done={done}>{text}</Todo>
-        )) }
+        ) }
 
         <li>What am I doing here again?</li>
       </ul>
@@ -35,11 +38,10 @@ const TodoApp = ({ pageTitle, todos = [], text = '' }: { pageTitle: string, todo
 }
 
 
-// @ts-ignore
-const pageTitle = new runtime.Observable('Hello world')
+const pageTitle = reactive('Hello world')
 
 document.body.appendChild(<TodoApp pageTitle={pageTitle} />)
 
 setInterval(() => {
-  pageTitle.value = 'Current time: ' + new Date().toLocaleTimeString()
+  pageTitle('Current time: ' + new Date().toLocaleTimeString())
 }, 1000)

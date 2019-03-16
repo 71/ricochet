@@ -1,9 +1,8 @@
 module.exports = {
   mode: 'production',
   entry: {
-    'dist/index'   : './src/index.ts',
-    'runtime/index': './src/runtime/index.ts',
-    'runtime/async': './src/runtime/async.ts'
+    'dist/index': './src/index.ts',
+    'dist/async': './src/async.ts',
   },
   resolve: {
     extensions: [ '.tsx', '.ts', '.js' ]

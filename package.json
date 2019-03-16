@@ -9,32 +9,15 @@
   "scripts": {
     "start": "parcel src/*.ts",
     "build": "webpack",
-    "examples": "parcel build src/index.ts && cross-env IN_EXAMPLES=true parcel examples/index.pug --no-cache",
-    "examples:build": "parcel build src/index.ts && cross-env IN_EXAMPLES=true parcel build examples/index.pug",
-    "test": "node test/index.js"
-  },
-  "peerDependencies": {
-    "@babel/core": "^7.2.2"
+    "examples": "parcel examples/index.pug --no-cache",
+    "examples:build": "parcel build examples/index.pug"
   },
   "devDependencies": {
-    "@babel/helper-plugin-test-runner": "^7.1.0",
-    "@babel/parser": "^7.3.1",
-    "@babel/plugin-transform-react-jsx": "^7.2.0",
-    "@babel/plugin-transform-typescript": "^7.2.0",
-    "@babel/preset-env": "^7.2.3",
-    "@types/babel__core": "^7.0.4",
-    "@types/babel__template": "^7.0.1",
-    "@types/babel__traverse": "^7.0.4",
-    "@types/jest": "^23.3.10",
     "@types/node": "^10.12.18",
     "awesome-typescript-loader": "^5.2.1",
-    "babel-plugin-tester": "^5.5.2",
-    "cross-env": "^5.2.0",
-    "jest": "^23.6.0",
     "parcel-bundler": "^1.11.0",
     "pug": "^2.0.3",
     "rxjs": "^6.3.3",
-    "ts-jest": "^23.10.5",
     "typescript": "^3.2.2",
     "webpack": "^4.28.4",
     "webpack-cli": "^3.2.1"

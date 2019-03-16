@@ -1,11 +1,12 @@
-import { async, Async } from '../../src/runtime/async'
+import { h }            from '../../src'
+import { async, Async } from '../../src/async'
 
 
 /**
  * Returns a promise that resolves after `n` milliseconds.
  */
 function wait(n: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, n))
+  return new Promise(resolve => setTimeout(resolve, n))
 }
 
 

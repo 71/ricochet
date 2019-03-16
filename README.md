@@ -2,6 +2,13 @@
 
 A small React-like web framework meant to be simple, light and fast.
 
+## Changes
+- Use basic `React.createElement` / `h` function call.
+- Everything is explicit.
+- When giving properties, both observable and non-observable values are accepted.
+- When receiving properties, everything is a "transparent" observable value; that is,
+  the value is `Object.assign(value, { subscribe, ... })`. `valueOf` must be used for primitives.
+	(Can be done internally though).
 
 ## Syntax
 
