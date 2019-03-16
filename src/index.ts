@@ -1,12 +1,9 @@
+import ObservableSymbol from 'symbol-observable'
+
 
 // ==============================================================================================
 // ==== REACTIVE API ============================================================================
 // ==============================================================================================
-
-/**
- * The symbol used to `subscribe` to / `observe` `Observable`s.
- */
-export const ObservableSymbol = Symbol.for('observable')
 
 /**
  * Defines an observer.

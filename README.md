@@ -1,107 +1,148 @@
 # Ricochet
 
-A small React-like web framework meant to be simple, light and fast.
+A small, reactive React-like web framework meant to be simple, light and fast.
 
-## Changes
-- Use basic `React.createElement` / `h` function call.
-- Everything is explicit.
-- When giving properties, both observable and non-observable values are accepted.
-- When receiving properties, everything is a "transparent" observable value; that is,
-  the value is `Object.assign(value, { subscribe, ... })`. `valueOf` must be used for primitives.
-	(Can be done internally though).
 
-## Syntax
+## Overview
 
-The following examples show the (simplified) output of some input JSX
-expressions. Note that some information is left out for the sake of readability.
+Ricochet attempts to avoid the cost of rendering components several times per second
+by following a simple principle: when a component is rendered (for instance,
+by using the syntax `<Foo />`), it is **only rendered once**. This means
+that the render method will only be called once.
 
-#### Intrinsic elements
-```jsx
-// Input:
-<div value={value} label='foo' { ... props } />
+Then, when the state of the component changes (by updating a reactive stream),
+only the parts of the component that depend on the changed stream will be updated.
 
-// Output:
-const div = renderIntrinsicElement('div', { value: value, label: 'foo', ... props })
+For instance, let's make a clock.
+
+```tsx
+// In React:
+const Clock = () => {
+  const [date, setDate] = React.useState(new Date())
+
+  setInterval(() => setDate(new Date()), 1000)
+
+  return (
+    <span>{date.toString()}</span>
+  )
+}
+
+// In Ricochet:
+const Clock = () => {
+  // 'reactive' creates an observable stream with an initial value,
+  // whose value can later be updated.
+  const date = reactive(new Date())
+
+  // The underlying value of 'date' can be updated by calling
+  // it with an argument.
+  setInterval(() => date(new Date()), 1000)
+
+  // To access the current value of 'date', one can call it without
+  // arguments.
+  console.log(date())
+
+  return (
+    // Ricochet has first class support for streams. When 'date'
+    // will be updated, the content of the span will be as well.
+    <span>{date}</span>
+  )
+}
 ```
 
-#### Child elements
-```jsx
-// Input:
-<div { ... props }>
-	{before}
-	<a href=''>Hello {name || firstName}</a>
-</div>
+If you're used to React, the above example might have triggered something in
+you. Indeed, the `Clock` component uses `console.log` inside of its body,
+without `useEffect`.
 
-// Output:
-const a = renderIntrinsicElement('a', { href: '' }, [
-	'Hello ',
-	combine([name, firstName], () => name || firstName)
-])
+However, since `Clock` will only be called once, then so will `console.log`.
 
-const div = renderIntrinsicElement('div', { ... props }, [ before, a ])
+
+## Diving deeper
+
+Ricochet attempts to be lightweight, and does not make assumptions on
+one's favorite libraries. Therefore, it is designed to work with any
+reactive library [that uses `Symbol.observable` to expose its interface](https://github.com/benlesh/symbol-observable#making-an-object-observable):
+
+```ts
+interface Unsubscribable {
+  unsubscribe(): void
+}
+
+interface Observable<T> {
+  [Symbol.observable]: () => {
+    subscribe(observer: (newValue: T) => void): Unsubscribable
+  }
+}
 ```
 
-#### Components
-```jsx
-// Input:
-<div>
-	<Link to='' { ... props }>Bar</Link>
-</div>
+Then, using your favorite library, observable streams can be freely manipulated.
 
-// Output:
-const link = renderComponent(Link, { to: '', ...props }, [ 'Bar' ])
-const div = renderIntrinsicElement('div', [ link ])
+For instance, in order to combine a user's first and last names into a single string,
+using [RxJS](https://github.com/ReactiveX/rxjs):
+
+```tsx
+const FullName = ({ firstName, lastName }) => {
+  const fullName = merge(firstName, lastName)
+
+  return (
+    <span>{fullName}</span>
+  )
+}
+```
+
+Of course, attributes may be reactive as well:
+
+```tsx
+<span className={firstName.pipe(map(x => x == '' ? 'nickname' : 'fullname'))}>
+  {fullName}
+</span>
 ```
 
 
-## Reactivity
+## Performances
 
-Ricochet uses the concept of observable (or reactive) values to update
-attributes when needed.
+Ricochet's goal is to avoid using a VDOM, and instead to create redraws, virtual
+or real, as rarely as possible. Since only the parts of the DOM that depend on a stream
+will be recomputed when the stream changes, allocations should be less common,
+and changes to the DOM should be as rare as if a diffing algorithm had been used.
 
-For instance, let's consider the following element:
+**However**, in some cases a simple change to a reactive stream may
+impact large parts of the DOM. For instance, when a list changes. In those cases,
+a few utilities are provided.
 
-```jsx
-<a href='https://github.com' class={({ active })}>GitHub</a>
+#### `observableArray`
+
+The `observableArray<T>(T[]): ObservableArray<T>` function takes an array,
+and returns another array, augmented with two functions:
+```tsx
+interface ObservableArray<T> extends Array<T> {
+  map<R>(f: (value: T) => R): ObservableArray<R>
+  observe(observer: ArrayObserver<T>): Unsubscribable
+}
 ```
 
-Here, the value of `active` may change at any time, which is why
-the class attribute won't receive the value `{ active }`, but instead
-`combine([active], () => active)`.
+An `ArrayObserver<T>` must define the `set(i: number, v: T)` method, and may also
+observe calls to other methods, such as `push`, `pop`, etc.
 
-The `combine` function takes a list of values, as well as an expression,
-and returns an observable value that changes anytime one of the given
-values change. If none of the given values is an observable itself, then
-the value is simply returned, without creating an additional observable wrapper.
+Internally, any part of the DOM that is rendered as an `ObservableArray<T>` will
+be efficiently mapped into DOM nodes. All array operations will directly
+manipulate the DOM nodes corresponding to each element, instead of redrawing the
+entire list on every change.
 
-Internally, `active` is called a `dependency` of the `<a />` component.
+Using `observableArray` is very simple: when an array may change after being
+drawn, it should be wrapped in an `ObservableArray`.
 
+```diff
+--- a/example.tsx
++++ b/example.tsx
 
-### Dependency resolution
+- const numbers = []
++ const numbers = observableArray([])
 
-Since Ricochet does not lookup information in its environment,
-it assumes that **any** expression may change at any time,
-triggering an update.
+return (
+  <div>
+    <button onclick={() => numbers.push(numbers.length)}>Add number</button>
 
-However, this means that every single expression we encounter needs
-to be watched, which is not very convenient.
-
-Therefore, the following algorithm is used:
-- If an expression is encountered somewhere (for instance, `foo.bar`),
-  it is replaced by an watched access (here, `_.foo_bar`). The `_` object
-	keeps track of all variables in scope, and allows one to subscribe to changes
-	to them.
-- If an expression appears on the left-hand side of an assignment (`foo.baz = 42`), it
-	is both replaced by a watched assignment (`_.foo_baz = 42`), and the expression
-	is automatically transformed into an observable value.
-
-In practice, this means that if any expression is encountered, it will not be considered
-reactive, and will be saved normally. If, however, it is assigned to at some point,
-it will be considered reactive, and will be wrapped in an observable wrapper.
-
-This is far from ideal, but other solutions would be:
-- Be explicit, and require compile-time annotations (such as `_.observe(foo, bar.baz)`, `_.exclude(meow)`).
-- Do not watch values, in which case updates would no longer be automatic.
-- Use a different syntax for values that might change and values that may not. This
-  would be fine if not for the fact that requiring that all expressions typecheck
-	correctly in TypeScript means that a lot of "dynamic" stuff can't happen.
+    {numbers}
+  </div>
+)
+```
