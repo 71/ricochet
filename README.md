@@ -131,10 +131,7 @@ entire list on every change.
 Using `observableArray` is very simple: when an array may change after being
 drawn, it should be wrapped in an `ObservableArray`.
 
-```diff
---- a/example.tsx
-+++ b/example.tsx
-
+```tsx
 - const numbers = []
 + const numbers = observableArray([])
 
@@ -142,7 +139,7 @@ return (
   <div>
     <button onclick={() => numbers.push(numbers.length)}>Add number</button>
 
-    {numbers}
+    {numbers.map(x => <h2>{x}</h2>)}
   </div>
 )
 ```
