@@ -1,4 +1,4 @@
-import { Observable, Observer, ObservableSymbol, Subscribable } from '.'
+import { Observable, ObservableSymbol, Observer, Subscribable, Subscription } from '.'
 import { makeObserve } from './internal'
 
 
@@ -128,7 +128,11 @@ export function subject<T>(initialValue: T): ExtendedSubject<T> {
 
 
 /**
- * 
+ * Returns an observable value that emits a single value,
+ * and then immediately completes.
+ *
+ * This function should be used when an observable stream
+ * is expected somewhere, but a single constant value can be provided.
  */
 export function constant<T>(value: T): Observable<T> {
   const observable: Observable<T> & Subscribable<T> = {
@@ -155,7 +159,80 @@ export function constant<T>(value: T): Observable<T> {
 
 
 /**
- * 
+ * Returns an observable that will be updated when any of the given observables
+ * changes.
+ *
+ * @see https://github.com/adamhaile/S for the inspiration for this function.
+ */
+export function compute<T>(
+  computation: ($: <U>(observable: Observable<U>, defaultValue?: U) => U) => T
+) {
+  const dependencies = new Map<Observable<any>, any>()
+  const subscriptions = new Set<Subscription>()
+
+  const initialValue = computation(function (dependency, defaultValue) {
+    if (dependencies.has(dependency))
+      return dependencies.get(dependency)
+
+    const subscription = dependency[ObservableSymbol]().subscribe({
+      next: v => {
+        if (v === dependencies.get(dependency))
+          return
+
+        dependencies.set(dependency, v)
+
+        if (value !== undefined)
+          value.next(computation(dependencies.get.bind(dependencies)))
+      },
+      complete: () => {
+        subscriptions.delete(subscription)
+      },
+    })
+
+    if (dependencies.has(dependency))
+      return dependencies.get(dependency)
+
+    // The dependency was NOT registered in the subscription call,
+    // which is unexpected (unless a default value was provided).
+    if (arguments.length === 1)
+      throw new Error('The given observable stream did not provide a value in time for the computation.')
+
+    dependencies.set(dependency, defaultValue)
+    return defaultValue
+  })
+
+  if (subscriptions.size === 0)
+    // No subscriptions <=> the computation will never change <=> constant
+    return constant(initialValue)
+
+  const value = subject(initialValue)
+
+  // We return a wrapper around the subject to:
+  // - Make sure the value cannot be updated by someone else.
+  // - Unsubscribe from all dependencies.
+  const observable: Observable<T> & Subscribable<T> = {
+    [ObservableSymbol]: () => observable,
+
+    subscribe: (observer: Observer<T>) => {
+      const subscription = value.subscribe(observer)
+
+      return {
+        unsubscribe: () => {
+          // FIXME: Only unsubscribe if we have to
+          // subscriptions.forEach(x => x.unsubscribe())
+          subscription.unsubscribe()
+        }
+      }
+    }
+  }
+
+  return observable
+}
+
+
+/**
+ * Returns an observable that gets updated when any of the given
+ * observables gets updated as well.
  */
 export function combine<O extends Observable<any>[]>(
   ...observables: O

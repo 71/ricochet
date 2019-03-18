@@ -64,7 +64,7 @@ declare global {
 
       destroy(): void
 
-      readonly subscriptions: Subscription[]
+      readonly subscriptions: Set<Subscription>
     }
 
     // Unfortunately, this does not work:
@@ -182,7 +182,7 @@ export function h(
   let element: HTMLElement
   let callback: (el: HTMLElement) => void
 
-  const subscriptions: Subscription[] = []
+  const subscriptions = new Set<Subscription>()
   const otherProperties = {
     subscriptions,
 
@@ -230,7 +230,7 @@ export function h(
           const $ = value != null ? value[ObservableSymbol] : undefined
 
           if ($ !== undefined) {
-            subscriptions.push($().subscribe(setValue))
+            subscriptions.add($().subscribe(setValue))
           } else {
             setValue(value)
           }
@@ -265,7 +265,7 @@ export function h(
 
       const el = tag(props)
 
-      subscriptions.push({
+      subscriptions.add({
         unsubscribe: () => el.destroy && el.destroy()
       })
 
@@ -283,7 +283,7 @@ export function h(
   return element as any
 }
 
-const initSubscriptions = [] as Subscription[][]
+const initSubscriptions = [] as Set<Subscription>[]
 
 /**
  * Attaches the given subscriptions to the element that is currently being initialized.
@@ -292,7 +292,8 @@ export function attach(...subscriptions: Subscription[]) {
   if (initSubscriptions.length === 0)
     throw new Error('`attach` can only be called in a component initializer.')
 
-  initSubscriptions[initSubscriptions.length - 1].push(...subscriptions)
+  for (const sub of subscriptions)
+    initSubscriptions[initSubscriptions.length - 1].add(sub)
 }
 
 
@@ -312,13 +313,14 @@ export function mount(node: NestedNode, el: Element): Subscription
 
 export function mount(node: NestedNode, el?: Element) {
   if (el === undefined) {
-    const subscriptions = [] as Subscription[]
+    const subscriptions = new Set<Subscription>()
 
     render(el, node, subscriptions)
 
     return {
       unsubscribe: () => {
-        subscriptions.splice(0).forEach(x => x.unsubscribe())
+        subscriptions.forEach(x => x.unsubscribe())
+        subscriptions.clear()
       }
     }
   }
@@ -327,7 +329,7 @@ export function mount(node: NestedNode, el?: Element) {
 
   node[ObservableSymbol]().subscribe(x => {
     const parent = document.createElement('div')
-    const subscriptions = [] as Subscription[]
+    const subscriptions = new Set<Subscription>()
 
     render(parent, x, subscriptions)
 
@@ -339,7 +341,8 @@ export function mount(node: NestedNode, el?: Element) {
 
     rendered = parent.firstElementChild
 
-    subscriptions.splice(0).forEach(x => x.unsubscribe())
+    subscriptions.forEach(x => x.unsubscribe())
+    subscriptions.clear()
   })
 
   if (rendered == null)
@@ -353,7 +356,7 @@ export function mount(node: NestedNode, el?: Element) {
  * Renders the given node and all of its nested nodes into the given parent,
  * and subscribes for future changes in order to automatically re-render its observable parts.
  */
-function render(parent: Element, node: NestedNode, subscriptions: Subscription[]) {
+function render(parent: Element, node: NestedNode, subscriptions: Set<Subscription>) {
   // The `r` function renders a node recursively between `prev` and `next`.
   //
   // Nodes are **always** inserted before `next`, and the `prev` node
@@ -394,11 +397,23 @@ function render(parent: Element, node: NestedNode, subscriptions: Subscription[]
             prev.value = next.value
         }
 
+        let addSubscription = true
+
         const observer = {
           next: renderChild,
+          complete: () => {
+            if (subscription === undefined)
+              // Completing before the end of the subscription
+              addSubscription = false
+            else
+              subscriptions.delete(subscription)
+          },
         }
 
-        subscriptions.push(obs.subscribe(observer))
+        const subscription = obs.subscribe(observer)
+
+        if (addSubscription)
+          subscriptions.add(subscription)
       }
 
       return

@@ -32,7 +32,8 @@ export function destroy(node?: Node & Partial<JSX.Element>) {
   if (node.subscriptions == null)
     return
 
-  node.subscriptions.splice(0).forEach(sub => sub.unsubscribe())
+  node.subscriptions.forEach(x => x.unsubscribe())
+  node.subscriptions.clear()
 
   if (node.ondestroy != null)
     node.ondestroy()
