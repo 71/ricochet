@@ -1,16 +1,30 @@
-import { h, observableArray, reactive, Observable, Reactive } from '../../src'
+import { h, Observable }                     from '../../src'
+import { observableArray, ObservableArray }  from '../../src/array'
+import { subject, ExtendedSubject, Subject } from '../../src/reactive'
 
 
-const Todo = ({ done, click = () => null, ...props }: { done: boolean, click?: EventListener, children?: Node }) => (
+interface TodoProps extends JSX.IntrinsicAttributes {
+  click?: EventListener
+  done  : Subject<boolean>
+}
+
+const Todo = ({ done, click = () => null, ...props }: TodoProps) => (
   <li>
     {props.children}
     <input type='checkbox' checked={done}
            onclick={click}
-           oninput={e => done = (e.target as HTMLInputElement).checked} />
+           oninput={e => done.next((e.target as HTMLInputElement).checked)} />
   </li>
 )
 
-const TodoApp = ({ pageTitle, todos = observableArray([]), text = reactive('') }: { pageTitle: string | Observable<string>, todos?: any[], text?: Reactive<string> }) => {
+
+interface TodoAppProps {
+  pageTitle: string | Observable<string>
+  text    ?: ExtendedSubject<string>
+  todos   ?: ObservableArray<{ done: Subject<boolean>, text: string }>
+}
+
+const TodoApp = ({ pageTitle, todos = observableArray(), text = subject('') }: TodoAppProps) => {
   let textBox: HTMLInputElement
 
   return (
@@ -18,10 +32,10 @@ const TodoApp = ({ pageTitle, todos = observableArray([]), text = reactive('') }
       <h1>{pageTitle}</h1>
 
       <input type='text' value={text} ref={x => textBox = x}
-             oninput={() => text(textBox.value)} />
+             oninput={() => text.next(textBox.value)} />
 
       { text.map(txt => txt != '' &&
-        <button onclick={() => (todos.push({ text: reactive(txt), done: reactive(false) })) && text('')}>Add todo</button>
+        <button onclick={() => (todos.push({ text: txt, done: subject(false) })) && text.next('')}>Add todo</button>
       ) }
 
       <ul class={pageTitle == 'Home' ? 'home-list' : ''}>
@@ -38,10 +52,10 @@ const TodoApp = ({ pageTitle, todos = observableArray([]), text = reactive('') }
 }
 
 
-const pageTitle = reactive('Hello world')
+const pageTitle = subject('Hello world')
 
 document.body.appendChild(<TodoApp pageTitle={pageTitle} />)
 
 setInterval(() => {
-  pageTitle('Current time: ' + new Date().toLocaleTimeString())
+  pageTitle.next('Current time: ' + new Date().toLocaleTimeString())
 }, 1000)

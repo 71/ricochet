@@ -1,0 +1,11 @@
+/.cache/
+/examples/
+/src/*.test.ts
+/test/
+
+/*.js
+/*.lock
+/*.log
+
+/dist/*.html
+/dist/*.*.*

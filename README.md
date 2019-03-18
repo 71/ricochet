@@ -1,45 +1,75 @@
 # Ricochet
 
-A small, reactive React-like web framework meant to be simple, light and fast.
+A small and unopinionated web framework meant to be simple, fast and lightweight.
 
 
 ## Overview
 
-Ricochet attempts to avoid the cost of rendering components several times per second
-by following a simple principle: when a component is rendered (for instance,
-by using the syntax `<Foo />`), it is **only rendered once**. This means
-that the render method will only be called once.
+Ricochet has similar goals to [Surplus](https://github.com/adamhaile/surplus), but it
+achieves them differently. Ricochet's main feature is to render `NestedNode`s into
+the DOM efficiently, where a `NestedNode` is either a DOM node, a list of DOM nodes,
+an observable stream of `NestedNode`, or a `NestedNode` list.
 
-Then, when the state of the component changes (by updating a reactive stream),
-only the parts of the component that depend on the changed stream will be updated.
+Therefore, the only thing that Ricochet needs to work is an observable stream,
+as defined by this [ECMAScript Observable proposal](https://github.com/tc39/proposal-observable#api).  
+Since [RxJS](https://github.com/ReactiveX/rxjs) and other libraries already implement this
+proposal, it is possible to immediately plug Ricochet with them.
 
-For instance, let's make a clock.
+Furthermore, Ricochet does not batch operations by default, and instead
+expects the user to handle this themselves. Thanks to the nature of observable streams, though,
+this can be easily achieved using [Schedulers](https://rxjs-dev.firebaseapp.com/guide/scheduler) in RxJS,
+for instance.
+
+
+## Getting started
+
+Ricochet components are only rendered once (when they are instantiated),
+and updated when a reactive stream they depend on changes.
+
+For instance, we can compare a clock in React and Ricochet.
 
 ```tsx
-// In React:
 const Clock = () => {
+  // State is introduced explicitely using 'useState'.
+  //
+  // The 'Clock' function will be called several times per second,
+  // but 'date' will be persisted thanks to 'useState'.
   const [date, setDate] = React.useState(new Date())
 
-  setInterval(() => setDate(new Date()), 1000)
+  // Effects are introduced using 'useEffect'.
+  React.useEffect(() => {
+    const interval = setInterval(() => setDate(new Date()), 1000)
+
+    return () => {
+      clearInterval(interval)
+    }
+  })
 
   return (
     <span>{date.toString()}</span>
   )
 }
+```
 
-// In Ricochet:
+Now here it is in Ricochet. Please note that `subject` (defined in
+[`ricochet/reactive`](./src/reactive.ts)), creates a stream similar to a
+[BehaviorSubject](https://rxjs-dev.firebaseapp.com/guide/subject#behaviorsubject).
+
+```tsx
 const Clock = () => {
-  // 'reactive' creates an observable stream with an initial value,
-  // whose value can later be updated.
-  const date = reactive(new Date())
+  // Since 'Clock' is only called once, there is no need for a
+  // tool such as 'useState'.
+  const date = subject(new Date())
 
-  // The underlying value of 'date' can be updated by calling
-  // it with an argument.
-  setInterval(() => date(new Date()), 1000)
+  // Once again, there is no need to wrap this logic at all.
+  const interval = setInterval(() => date.next(new Date()), 1000)
 
-  // To access the current value of 'date', one can call it without
-  // arguments.
-  console.log(date())
+  // Resources are bound to elements and can be disposed of
+  // using `element.destroy()`. To give ownership of a subscription
+  // to an element, we can use the 'attach' function.
+  attach({
+    unsubscribe: () => clearInterval(interval)
+  })
 
   return (
     // Ricochet has first class support for streams. When 'date'
@@ -47,54 +77,6 @@ const Clock = () => {
     <span>{date}</span>
   )
 }
-```
-
-If you're used to React, the above example might have triggered something in
-you. Indeed, the `Clock` component uses `console.log` inside of its body,
-without `useEffect`.
-
-However, since `Clock` will only be called once, then so will `console.log`.
-
-
-## Diving deeper
-
-Ricochet attempts to be lightweight, and does not make assumptions on
-one's favorite libraries. Therefore, it is designed to work with any
-reactive library [that uses `Symbol.observable` to expose its interface](https://github.com/benlesh/symbol-observable#making-an-object-observable):
-
-```ts
-interface Unsubscribable {
-  unsubscribe(): void
-}
-
-interface Observable<T> {
-  [Symbol.observable]: () => {
-    subscribe(observer: (newValue: T) => void): Unsubscribable
-  }
-}
-```
-
-Then, using your favorite library, observable streams can be freely manipulated.
-
-For instance, in order to combine a user's first and last names into a single string,
-using [RxJS](https://github.com/ReactiveX/rxjs):
-
-```tsx
-const FullName = ({ firstName, lastName }) => {
-  const fullName = merge(firstName, lastName)
-
-  return (
-    <span>{fullName}</span>
-  )
-}
-```
-
-Of course, attributes may be reactive as well:
-
-```tsx
-<span className={firstName.pipe(map(x => x == '' ? 'nickname' : 'fullname'))}>
-  {fullName}
-</span>
 ```
 
 

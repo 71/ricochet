@@ -1,6 +1,7 @@
-import { h, observableArray } from '../../src'
+import { h }               from '../../src'
+import { observableArray } from '../../src/array'
 
-const numbers = observableArray<number>([])
+const numbers = observableArray<number>()
 
 for (let i = 0; i < 10; i++)
   numbers.push(i)

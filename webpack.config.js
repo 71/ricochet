@@ -2,7 +2,11 @@ module.exports = {
   mode: 'production',
   entry: {
     'dist/index': './src/index.ts',
+    'dist/array': './src/array.ts',
     'dist/async': './src/async.ts',
+    'dist/reactive': './src/reactive.ts',
+
+    'dist/interop/*': './dist/interop/*.ts'
   },
   resolve: {
     extensions: [ '.tsx', '.ts', '.js' ]

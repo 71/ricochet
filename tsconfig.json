@@ -8,13 +8,15 @@
     "sourceMap": true,
     "strict": false,
     "jsx": "react",
-    "jsxFactory": "h"
+    "jsxFactory": "h",
+    "types": [
+      "jest"
+    ]
   },
+  "include": [
+    "src/*.ts"
+  ],
   "exclude": [
-    "dist",
-    "examples",
-    "node_modules",
-    "runtime",
-    "test"
+    "index.d.ts"
   ]
 }
