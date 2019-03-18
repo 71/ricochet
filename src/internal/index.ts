@@ -39,12 +39,21 @@ export function destroy(node?: Node & Partial<JSX.Element>) {
 }
 
 /**
- * Destroys the nodes in the range [prev, next[.
+ * Destroys all the nodes in the range [prev, next[.
  */
-export function destroyRecursively(prevIncluded: Node, nextExcluded: Node): void {
-  if (prevIncluded == null || prevIncluded == nextExcluded)
+export function destroyRange(prevIncluded: Node, nextExcluded: Node): void {
+  if (prevIncluded == null)
     return
 
-  destroyRecursively(prevIncluded.nextSibling, nextExcluded)
+  if (nextExcluded == null) {
+    const parent = prevIncluded.parentElement
+
+    while (parent.lastChild != prevIncluded)
+      destroy(parent.lastChild)
+  } else {
+    while (nextExcluded.previousSibling != prevIncluded)
+      destroy(nextExcluded.previousSibling)
+  }
+
   destroy(prevIncluded)
 }

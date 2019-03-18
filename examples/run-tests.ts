@@ -42,7 +42,7 @@ window['it'] = function (name: string, test: () => void) {
 }
 
 window['describe'] = function (name: string, suite: () => void) {
-  console.log('Suite %c' + name + '%c:', 'font-weight: bold;', '')
+  console.log('\n%c' + name + '%c:', 'font-weight: bold;', '')
 
   suite()
 }
@@ -55,4 +55,5 @@ import '../src/reactive.test'
 import '../src/internal/index.test'
 import '../src/internal/test-utils.test'
 
+import '../src/interop/rxjs.test'
 import '../src/interop/wc.test'

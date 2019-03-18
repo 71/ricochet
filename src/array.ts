@@ -1,5 +1,5 @@
-import { RenderFunction, Subscription }    from '.'
-import { destroyRecursively, makeObserve } from './internal'
+import { RenderFunction, Subscription } from '.'
+import { destroyRange, makeObserve }    from './internal'
 
 
 const observableArraySymbol = Symbol('observableArray')
@@ -105,6 +105,45 @@ export function observableArray<T>(...array: T[]): ObservableArray<T> {
     // is in renderedNodes[i].
     const renderedNodes: { value: Node }[] = []
 
+    const splice = (start: number, deleteCount?: number, ...items: any[]) => {
+      if (start < 0)
+        throw new Error()
+
+      if (deleteCount === undefined)
+        deleteCount = renderedNodes.length - start
+
+      let prev = renderedNodes[start] || firstPrev
+      let next = renderedNodes[start + deleteCount] || lastNext
+
+      // Delete some items
+      if (deleteCount > 0) {
+        destroyRange(prev.value, next.value)
+
+        if (start > 0)
+          renderedNodes[start] = next
+      }
+
+      // And create some more
+      const generated = new Array<{ value: Node }>(items.length)
+
+      for (let i = items.length - 1; i >= 0; i--) {
+        const newPrev = { value: undefined }
+
+        r(items[i], newPrev, next)
+
+        generated[i] = next = newPrev
+      }
+
+      if (items.length > 0) {
+        r(items[0], prev, next)
+
+        generated[0] = prev
+      }
+
+      // And update the arrays
+      renderedNodes.splice(start, deleteCount, ...generated)
+    }
+
     const subscription = observe({
       set: (i, v) => {
         if (renderedNodes[i] === undefined) {
@@ -122,7 +161,7 @@ export function observableArray<T>(...array: T[]): ObservableArray<T> {
         const prev = renderedNodes[i]
         const next = renderedNodes[i + 1] || lastNext
 
-        destroyRecursively(prev.value, next.value)
+        destroyRange(prev.value, next.value)
 
         if (v === undefined)
           renderedNodes[i] = next
@@ -144,88 +183,37 @@ export function observableArray<T>(...array: T[]): ObservableArray<T> {
         }
       },
 
-      // splice: (start: number, deleteCount: number, ...items: NestedNode[]) => {
-      //   let next = renderedNodes[start + deleteCount]
+      splice,
 
-      //   // Delete some items
-      //   if (deleteCount > 0) {
-      //     const prev = renderedNodes[start - 1] || firstPrev
+      pop: () => {
+        const prev = renderedNodes[renderedNodes.length - 2] || firstPrev
+        const next = renderedNodes.pop()
 
-      //     destroyRecursively(prev.value, next.value)
+        prev.value = next.value
 
-      //     if (start > 0)
-      //       renderedNodes[start - 1] = next
-      //   }
+        destroyRange(next.value, undefined)
+      },
 
-      //   // And create some more
-      //   const generated = []
+      shift: () => {
+        const prev = firstPrev
+        const next = renderedNodes.shift()
 
-      //   for (let i = items.length - 1; i >= 0; i--) {
+        destroyRange(prev.value, next.value)
 
-      //     r(items[i], next, next)
+        prev.value = next.value
+      },
 
-      //     generated.push(next)
-      //   }
+      push: (...items: any[]) => {
+        splice(renderedNodes.length, 0, ...items)
+      },
 
-      //   // And update the arrays
-      //   renderedNodes.splice(start, deleteCount, ...generated)
-      // },
+      unshift: (...items: any[]) => {
+        splice(0, 0, ...items)
+      },
 
-      // pop: () => {
-      //   const prev = renderedNodes[renderedNodes.length - 2] || firstPrev
-      //   const next = renderedNodes.pop()
-
-      //   destroyRecursively(prev.value, next.value)
-
-      //   prev.value = next.value
-      // },
-
-      // shift: () => {
-      //   const prev = firstPrev
-      //   const next = renderedNodes.shift()
-
-      //   destroyRecursively(prev.value, next.value)
-
-      //   prev.value = next.value
-      // },
-
-      // push: (...items: NestedNode[]) => {
-      //   let next = lastNext
-      //   let prev = renderedNodes[renderedNodes.length - 1] || firstPrev
-      //   let generated = []
-
-      //   for (let i = items.length - 1; i > 0; i--) {
-      //     const childPrev = { value: undefined }
-
-      //     r(node[i], childPrev, next)
-
-      //     generated.unshift(next)
-      //     next = childPrev
-      //   }
-
-      //   r(items[0], prev, next)
-
-      //   renderedNodes.push(prev, ...generated)
-      // },
-
-      // unshift: (...items: NestedNode[]) => {
-      //   let next = renderedNodes[0] || lastNext
-      //   let prev = firstPrev
-      //   let generated = []
-
-      //   for (let i = items.length - 1; i > 0; i--) {
-      //     const childPrev = { value: undefined }
-
-      //     r(node[i], childPrev, next)
-
-      //     generated.unshift(next)
-      //     next = childPrev
-      //   }
-
-      //   r(items[0], prev, next)
-
-      //   renderedNodes.push(prev, ...generated)
-      // },
+      find: () => {},
+      findIndex: () => {},
+      forEach: () => {}
     }, true)
   }
 
@@ -255,33 +243,38 @@ export function observableArray<T>(...array: T[]): ObservableArray<T> {
 
       if (typeof prop === 'function') {
         return traps[p] = (...args) => {
-          const prevValues = [...values]
-          const r = prop.apply(values, args)
+          // Some observers may not define a direct implementation of the
+          // function that was called. Therefore, we want to use the 'set' function
+          // for all accesses, which is how arrays work at their lowest level.
+          const fallbackObservers = [] as ArrayObserver<T>[]
 
-          observers.forEach(x => {
-            const cb = x[p]
+          for (const observer of observers) {
+            const cb = observer[p]
 
-            const passthrough = new Proxy([...prevValues], {
-              get: (t, p) => t[p],
-              set: (t, p, v) => {
-                if (typeof p === 'string' && Number.isInteger(+p))
-                  x.set(+p, v)
-                else if (typeof p === 'number')
-                  x.set(p, v)
-
-                t[p] = v
-
-                return true
-              }
-            })
-
-            if (cb != null)
-              cb(...args)
+            if (cb === undefined)
+              fallbackObservers.push(observer)
             else
-              Array.prototype[p].call(passthrough, ...args)
+              cb(...args)
+          }
+
+          if (fallbackObservers.length === 0)
+            return prop.apply(values, args)
+
+          const passthrough = new Proxy(values, {
+            get: (t, p) => t[p],
+            set: (t, p, v) => {
+              if (typeof p === 'string' && Number.isInteger(+p))
+                fallbackObservers.forEach(x => x.set(+p, v))
+              else if (typeof p === 'number')
+                fallbackObservers.forEach(x => x.set(p, v))
+
+              t[p] = v
+
+              return true
+            }
           })
 
-          return r
+          return Array.prototype[p].apply(passthrough, args)
         }
       }
 
@@ -296,7 +289,9 @@ export function observableArray<T>(...array: T[]): ObservableArray<T> {
         if (p < 0 || p > values.length)
           return false
 
+        values[p] = value
         observers.forEach(x => x.set(p as number, value))
+
         return true
       }
 

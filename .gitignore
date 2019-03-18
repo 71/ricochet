@@ -1,8 +1,11 @@
 /.cache/
 /dist/
 /node_modules/
-/runtime/
 
-/*.d.ts
-/*.lock
-/*.log
+*.d.ts
+*.lock
+*.log
+
+*.js
+*.js.map
+!*.config.js

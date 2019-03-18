@@ -7,8 +7,11 @@ A small and unopinionated web framework meant to be simple, fast and lightweight
 
 Ricochet has similar goals to [Surplus](https://github.com/adamhaile/surplus), but it
 achieves them differently. Ricochet's main feature is to render `NestedNode`s into
-the DOM efficiently, where a `NestedNode` is either a DOM node, a list of DOM nodes,
-an observable stream of `NestedNode`, or a `NestedNode` list.
+the DOM efficiently, where a `NestedNode` is defined as follows:
+
+```typescript
+type NestedNode = string | Element | Observable<NestedNode> | NestedNode[]
+```
 
 Therefore, the only thing that Ricochet needs to work is an observable stream,
 as defined by this [ECMAScript Observable proposal](https://github.com/tc39/proposal-observable#api).  
@@ -64,7 +67,7 @@ const Clock = () => {
   // Once again, there is no need to wrap this logic at all.
   const interval = setInterval(() => date.next(new Date()), 1000)
 
-  // Resources are bound to elements and can be disposed of
+  // Resources are bound to elements and can be disposed of by
   // using `element.destroy()`. To give ownership of a subscription
   // to an element, we can use the 'attach' function.
   attach({
@@ -95,6 +98,7 @@ a few utilities are provided.
 
 The `observableArray<T>(T[]): ObservableArray<T>` function takes an array,
 and returns another array, augmented with two functions:
+
 ```tsx
 interface ObservableArray<T> extends Array<T> {
   map<R>(f: (value: T) => R): ObservableArray<R>
@@ -115,7 +119,7 @@ drawn, it should be wrapped in an `ObservableArray`.
 
 ```tsx
 - const numbers = []
-+ const numbers = observableArray([])
++ const numbers = observableArray()
 
 return (
   <div>

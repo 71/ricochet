@@ -1,4 +1,4 @@
-import { destroy, destroyRecursively, makeObserve } from '.'
+import { destroy, destroyRange, makeObserve } from '.'
 import { html } from './test-utils'
 
 describe('Internal utilities', () => {
@@ -19,7 +19,7 @@ describe('Internal utilities', () => {
     expect(el.children[3].outerHTML).toBe('<li>3</li>')
 
     // Remove nodes [1, 2].
-    destroyRecursively(el.children[1], el.children[3])
+    destroyRange(el.children[1], el.children[3])
 
     expect(el.childElementCount).toBe(2)
     expect(el.children[0].outerHTML).toBe('<li>0</li>')

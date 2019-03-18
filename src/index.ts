@@ -1,6 +1,6 @@
 import UntypedObservableSymbol from 'symbol-observable'
 
-import { destroy, destroyRecursively } from './internal'
+import { destroy, destroyRange } from './internal'
 
 
 // ==============================================================================================
@@ -78,13 +78,13 @@ declare global {
 
     type IntrinsicElements = {
       [key in keyof HTMLElementTagNameMap]: {
-        class?: string
-        ref  ?: (el: HTMLElementTagNameMap[key]) => void
+        class   ?: string
+        children?: NestedNode
+        ref     ?: (el: HTMLElementTagNameMap[key]) => void
+        style   ?: Partial<CSSStyleDeclaration>
       } & {
-        [attr in Exclude<keyof HTMLElementTagNameMap[key], 'style'>]?:
+        [attr in Exclude<keyof HTMLElementTagNameMap[key], 'style' | 'children'>]?:
           HTMLElementTagNameMap[key][attr] | Observable<HTMLElementTagNameMap[key][attr]>
-      } & {
-        style?: Partial<CSSStyleDeclaration>
       }
     }
   }
@@ -94,7 +94,7 @@ declare global {
 /**
  * An arbitrarily nested DOM `Node`.
  */
-export type NestedNode = Node | CustomNode | string | NodeArray | ObservableNode
+export type NestedNode = Node | CustomNode | string | number | NodeArray | ObservableNode
 
 /**
  * An observable `NestedNode`.
@@ -385,7 +385,7 @@ function render(parent: Element, node: NestedNode, subscriptions: Subscription[]
           // The inserted children are the ones inserted after the child insertion point,
           // but before the insertion point given to us.
           if (hadValue)
-            destroyRecursively(prev.value, next.value)
+            destroyRange(prev.value, next.value)
 
           r(newValue, prev, next, false)
           hadValue = prev.value !== undefined

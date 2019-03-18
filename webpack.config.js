@@ -1,15 +1,16 @@
 module.exports = {
   mode: 'production',
   entry: {
-    'dist/index': './src/index.ts',
-    'dist/array': './src/array.ts',
-    'dist/async': './src/async.ts',
-    'dist/reactive': './src/reactive.ts',
+    'index'   : './src/index.ts',
+    'array'   : './src/array.ts',
+    'async'   : './src/async.ts',
+    'reactive': './src/reactive.ts',
 
-    'dist/interop/*': './dist/interop/*.ts'
+    'interop/rxjs': './src/interop/rxjs.ts',
+    'interop/wc'  : './src/interop/wc.ts',
   },
   resolve: {
-    extensions: [ '.tsx', '.ts', '.js' ]
+    extensions: [ '.tsx', '.ts', '.js' ],
   },
   output: {
     path: __dirname,
@@ -17,16 +18,15 @@ module.exports = {
     libraryTarget: 'umd',
     library: 'ricochet',
     umdNamedDefine: true,
-    globalObject: 'this'
   },
   module: {
     rules: [
       {
         test: /\.tsx?$/,
         use: 'awesome-typescript-loader',
-        exclude: /node_modules/
-      }
-    ]
+        exclude: /node_modules/,
+      },
+    ],
   },
-  devtool: 'source-map'
+  devtool: 'source-map',
 }
