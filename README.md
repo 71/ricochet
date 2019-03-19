@@ -14,7 +14,7 @@ the DOM efficiently, where a [`NestedNode`](#type-nestednode) is defined as foll
 type NestedNode = string | CustomNode | Element | Observable<NestedNode> | NestedNode[]
 ```
 
-Therefore, the only thing that Ricochet needs to work is an [observable](#interface-observable) stream,
+Therefore, the only thing that Ricochet needs to work is an [observable](#interface-observablet) stream,
 as defined by this [ECMAScript Observable proposal](https://github.com/tc39/proposal-observable#api).
 Furthermore, since [RxJS](https://github.com/ReactiveX/rxjs) and other reactive libraries already implement this
 proposal, it is possible to use them with Ricochet immediately, without wrappers of any sort.
@@ -53,8 +53,8 @@ const Clock = () => {
 }
 ```
 
-Now here it is in Ricochet. Please note that [`subject`](#function-subject) (defined in
-[`ricochet/reactive`](./src/reactive.ts)), creates a stream similar to a
+Now here it is in Ricochet. Please note that [`subject`](#function-subjecttinitialvalue-extendedsubjectt)
+(defined in [`ricochet/reactive`](./src/reactive.ts)), creates a stream similar to a
 [BehaviorSubject](https://rxjs-dev.firebaseapp.com/guide/subject#behaviorsubject).
 
 ```tsx
@@ -97,7 +97,7 @@ rendering process for specific nodes.
 
 ### Exploiting observables
 
-[`Observable`](#interface-observable) streams are very powerful abstractions, and
+[`Observable`](#interface-observablet) streams are very powerful abstractions, and
 can be manipulated to optimize their performances.
 
 For instance, [RxJS](https://github.com/ReactiveX/rxjs) provides the following features
@@ -142,8 +142,8 @@ utilities may be added later on, such as keyed lists, memoization, and batch ren
 ##### Efficient list rendering
 
 The [`ricochet/array`](#ricochetarray) module provides the
-[`observableArray<T>`](#function-observablearray) function, which takes an array
-and returns an [`ObservableArray<T>`](#interface-observablearray). This specialized
+[`observableArray<T>`](#function-observablearraytarray-observablearrayt) function, which takes an array
+and returns an [`ObservableArray<T>`](#interface-observablearrayt-extends-arrayt). This specialized
 array provides the same interface as a regular array, but is able to efficiently
 map changes to its underlying data to the DOM by implementing [`CustomNode`](#interface-customnode).
 
