@@ -10,7 +10,7 @@ writeFileSync('README.md', readFileSync('README.md', 'utf8').replace(/\s+# API[\
 // Append the API to the freshly modified README
 const stream = createWriteStream('README.md', { flags: 'a+' })
 
-stream.write('\n\n# API\n')
+stream.write('\n\n\n# API\n')
 
 const files = {
   'index.d.ts': {
@@ -49,7 +49,7 @@ for (const file in files) {
   stream.write('### `' + path + '`\n')
   stream.write(header + '\n\n')
 
-  let docRegex = /(\/\*\*[\s\S]+?\n\s+\*\/)\s*(render[\s\S]+?void;|export interface[\s\S]+?{$|export declare function[\s\S]+?\): .+;$|(?:\w[\s\S]+?);$)/gm
+  let docRegex = /(\/\*\*[\s\S]+?\n\s+\*\/)\s*(render[\s\S]+?void;|export declare type[^{}]+?{[^{}]+?};$|export interface[\s\S]+?{$|export declare function[\s\S]+?\): .+;$|(?:\w[\s\S]+?);$)/gm
   let result = null as RegExpExecArray
 
   while (result = docRegex.exec(content)) {
@@ -98,7 +98,7 @@ for (const file in files) {
       if (decl.startsWith('type')) {
         stream.write('Defined as:\n')
         stream.write('```typescript\n')
-        stream.write(decl + '\n')
+        stream.write(decl.replace(';}', ' }') + '\n')
         stream.write('```\n\n')
       }
     } else {
@@ -191,7 +191,7 @@ function printParameters(fn: string, params: tsdoc.DocParamCollection) {
     for (const [paramName, paramType] of paramPairs) {
       const param = params.blocks.find(x => x.parameterName === paramName)
 
-      stream.write('| ' + paramName + ' | `' + paramType + '` | ')
+      stream.write('| ' + paramName + ' | `' + paramType.replace(';}', ' }') + '` | ')
 
       if (param != null)
         print(param.content)

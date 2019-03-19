@@ -90,9 +90,8 @@ will be recomputed when the stream changes, allocations should be less common,
 and changes to the DOM should be as rare as if a diffing algorithm had been used.
 
 **However**, in some cases a simple change to a reactive stream may
-impact large parts of the DOM, which will lead to a slower redraw. For these cases,
-Ricochet allows its consumers to tune performances by giving them control of the
-rendering process for specific nodes.
+impact large parts of the DOM, which will lead to a slower redraw. In these
+cases, performances may still be tuned easily in different ways.
 
 
 ### Exploiting observables
@@ -188,7 +187,7 @@ Defines an observer.
 
 Defined as:
 ```typescript
-type Observer<T> = ((newValue: T) => void) | { next(newValue: T): void
+type Observer<T> = ((newValue: T) => void) | { next(newValue: T): void; complete?(): void }
 ```
 
 
@@ -612,7 +611,7 @@ Utilities for defining Web Components.
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
 | component | `Component<P, E>` | None |
-| translateProperties | `object & { [K in keyof P]: (value?: string) => P[K];}` | None |
+| translateProperties | `object & { [K in keyof P]: (value?: string) => P[K] }` | None |
 
 Creates a custom element (or web component) out of a JSX component.
 
