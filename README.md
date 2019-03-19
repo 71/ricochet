@@ -6,12 +6,25 @@ A small and unopinionated web framework meant to be simple, fast and lightweight
 
 ## Overview
 
-Ricochet has similar goals to [Surplus](https://github.com/adamhaile/surplus), but
-achieves them differently. Ricochet's main feature is to render [`NestedNode`](#type-nestednode)s into
-the DOM efficiently, where a [`NestedNode`](#type-nestednode) is defined as follows:
+Ricochet is a small web framework which uses the [JSX](https://reactjs.org/docs/introducing-jsx.html)
+syntax and [observable sequences](http://reactivex.io/documentation/observable.html) to define layouts.
+Its main ability is to render [`NestedNode`](#type-nestednode)s into the DOM efficiently, where
+a [`NestedNode`](#type-nestednode) is defined as follows:
 
 ```typescript
-type NestedNode = string | CustomNode | Element | Observable<NestedNode> | NestedNode[]
+// A nested node can be...
+type NestedNode =
+  // ... a DOM element,
+  | Element
+  // ... a primitive,
+  | number
+  | string
+  // ... an observable sequence of nested nodes,
+  | Observable<NestedNode>
+  // ... a list of nested nodes,
+  | ReadonlyArray<NestedNode>
+  // ... or a custom node.
+  | CustomNode
 ```
 
 Therefore, the only thing that Ricochet needs to work is an [observable](#interface-observablet) stream,
@@ -109,10 +122,11 @@ for improving how streams are processed:
 
 ### Customizing the rendering process
 
-As stated in the [overview](#overview), Ricochet can render many kinds of nodes, one of them being
-the [`CustomNode`](#interface-customnode). Nodes that implement this interface are given full
-control over how they and their children are rendered, making operations such as batch processing and
-node caching extremely easy to implement.
+As stated in the [overview](#overview), Ricochet can render many kinds of nodes. However, a supported type
+of node that wasn't mentioned before is the [`CustomNode`](#interface-customnode).
+
+Nodes that implement this interface are given full control over how they and their children are rendered,
+making operations such as batch processing and node caching extremely easy to implement.
 
 For instance, here is how you would implement a node that only updates if a condition is respected:
 
