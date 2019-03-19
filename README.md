@@ -11,7 +11,7 @@ achieves them differently. Ricochet's main feature is to render [`NestedNode`](#
 the DOM efficiently, where a [`NestedNode`](#type-nestednode) is defined as follows:
 
 ```typescript
-type NestedNode = string | Element | Observable<NestedNode> | NestedNode[]
+type NestedNode = string | CustomNode | Element | Observable<NestedNode> | NestedNode[]
 ```
 
 Therefore, the only thing that Ricochet needs to work is an [observable](#interface-observable) stream,
@@ -19,10 +19,8 @@ as defined by this [ECMAScript Observable proposal](https://github.com/tc39/prop
 Furthermore, since [RxJS](https://github.com/ReactiveX/rxjs) and other reactive libraries already implement this
 proposal, it is possible to use them with Ricochet immediately, without wrappers of any sort.
 
-Ricochet does not optimize its operations by default, but makes it extremely easy to add
-features such as memoization, update batching and efficient list rendering, by:
-2. And by providing ways for consumers to hand-optimize the rendering process of a specific node (see
-   [Optimization](#Optimization) for an example).
+Ricochet does not optimize its operations by default, but [makes it extremely easy to add
+features such as memoization, update batching and efficient list rendering](#Optimization).
 
 
 ## Getting started
