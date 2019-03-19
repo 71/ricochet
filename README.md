@@ -185,6 +185,53 @@ the [`examples`](./examples) page currently runs all tests in the browser,
 ensuring that Ricochet keeps working as intended.
 
 
+## Tips
+
+- Sometimes, a component may want to receive either an observable value or a regular
+  value, depending on what the caller needs. However, in most cases `T` and `Observable<T>`
+  have very different interfaces, which makes it hard to manipulate one or the other
+  via a single API. In cases where an `Observable<T>` *could* be accepted, it is best to
+  always accept an `Observable<T>` sequence, since such sequences can be made to emit
+  a single element before completing, therefore acting exactly like a function (see:
+  [`constant`](#function-constanttvalue-subscribablet),
+  [`of`](https://rxjs-dev.firebaseapp.com/api/index/function/of)).  
+  Since these observable sequences complete right after emitting an item, their
+  resources will be disposed of quickly, and it will be as if a non-observable value
+  had been used.
+
+  Additionally, the built-in functions
+  [`combine`](#function-combineoobservables-subscribable-k-in-keyof-o-ok-extends-observableinfer-t--t--never)
+  and
+  [`compute`](#function-computetcomputation-subscribablet) both accept observable sequences as
+  inputs, but may receive non-observable values, avoiding a useless subscription / unsubscription
+  operation.
+
+- Ricochet was designed with [RxJS](https://github.com/ReactiveX/rxjs) in mind, but works
+  with many different reactive libraries. In fact, it only requires of observable
+  values to define a way to subscribe to them; creating the
+  [`constant`](#function-constanttvalue-subscribablet) /
+  [`of`](https://rxjs-dev.firebaseapp.com/api/index/function/of) observable
+  is as simple as doing:
+
+  ```typescript
+  function of<T>(value: T): Subscribable<T> & Observable<T> {
+    const observable = {
+      [Observable.symbol]() {
+        return observable
+      },
+
+      subscribe(observer: Observer<T>) {
+        observer.next(value)
+        observer.complete()
+      }
+    }
+
+    return observable
+  })
+  ```
+
+
+
 # API
 
 ### `ricochet`
@@ -599,6 +646,26 @@ changes.
 See [S.js](https://github.com/adamhaile/S) for the inspiration for this function.
 
 
+
+##### Example
+
+
+
+```typescript
+const a = subject(1)
+const b = subject(1)
+
+const c = compute($ => $(a) + $(b))
+
+c.subscribe(console.log).unsubscribe() // Prints '2'
+
+a.next(10)
+
+c.subscribe(console.log) // Prints '11'
+
+b.next(20) // Prints '30'
+
+```
 
 #### `function combine<O>(...observables): Subscribable<{ [K in keyof O]: O[K] extends Observable<infer T> ? T : never`
  - `O`: `Observable<any>[]`

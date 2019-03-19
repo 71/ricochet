@@ -10,7 +10,7 @@ writeFileSync('README.md', readFileSync('README.md', 'utf8').replace(/\s+# API[\
 // Append the API to the freshly modified README
 const stream = createWriteStream('README.md', { flags: 'a+' })
 
-stream.write('\n\n\n# API\n')
+stream.write('\n\n\n\n# API\n')
 
 const files = {
   'index.d.ts': {

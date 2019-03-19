@@ -163,6 +163,23 @@ export function constant<T>(value: T): Subscribable<T> {
  * changes.
  *
  * See [S.js](https://github.com/adamhaile/S) for the inspiration for this function.
+ *
+ * ##### Example
+ *
+ * ```typescript
+ * const a = subject(1)
+ * const b = subject(1)
+ *
+ * const c = compute($ => $(a) + $(b))
+ *
+ * c.subscribe(console.log).unsubscribe() // Prints '2'
+ *
+ * a.next(10)
+ *
+ * c.subscribe(console.log) // Prints '11'
+ *
+ * b.next(20) // Prints '30'
+ * ```
  */
 export function compute<T>(
   computation: ($: <U>(observable: Observable<U>, defaultValue?: U) => U) => T
