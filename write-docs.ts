@@ -69,7 +69,7 @@ for (const file in files) {
     const ctx = parser.parseString(doc)
     const comment = ctx.docComment
 
-    console.assert(ctx.log.messages.length === 0)
+    ctx.log.messages.forEach(msg => console.error(msg.toString()))
 
     if (decl.startsWith('export')) {
       decl = decl.trim()
@@ -93,7 +93,7 @@ for (const file in files) {
         stream.write('#### `' + decl + '`\n')
       }
 
-      comment.summarySection.nodes.forEach(print)
+      comment.summarySection.nodes.forEach(n => print(n, false))
 
       if (decl.startsWith('type')) {
         stream.write('Defined as:\n')
@@ -107,7 +107,7 @@ for (const file in files) {
       if (decl.includes('):') && !decl.includes('():'))
         printParameters(decl, comment.params)
 
-      comment.summarySection.nodes.forEach(print)
+      comment.summarySection.nodes.forEach(n => print(n, false))
     }
 
     stream.write('\n')
@@ -115,12 +115,16 @@ for (const file in files) {
 }
 
 
-function print(node: tsdoc.DocNode) {
-  if (node instanceof tsdoc.DocParagraph) {
-    node.nodes.forEach(print)
-    stream.write('\n\n')
+function print(node: tsdoc.DocNode, inline = false) {
+  const nl = inline ? ' ' : '\n'
+
+  if (node instanceof tsdoc.DocParagraph || node instanceof tsdoc.DocSection) {
+    node.nodes.forEach(n => print(n, inline))
+
+    if (!inline)
+      stream.write('\n\n')
   } else if (node instanceof tsdoc.DocExcerpt) {
-    stream.write(node.content.toString() + '\n')
+    stream.write(node.content.toString().trim() + nl)
   } else if (node instanceof tsdoc.DocPlainText) {
     stream.write(node.text)
   } else if (node instanceof tsdoc.DocCodeSpan) {
@@ -130,13 +134,9 @@ function print(node: tsdoc.DocNode) {
     stream.write(node.code + '\n')
     stream.write('```\n')
   } else if (node instanceof tsdoc.DocSoftBreak) {
-    stream.write('\n')
+    stream.write(nl)
   } else if (node instanceof tsdoc.DocBlockTag) {
-    if (node.tagName === '@see') {
-      node.getChildNodes().forEach(print)
-    } else {
-      console.error('Unknown block tag ' + node.tagName + '.')
-    }
+    console.error('Unknown block tag ' + node.tagName + '.')
   } else {
     console.error('Unknown node ' + node.kind + '.')
   }
@@ -194,7 +194,7 @@ function printParameters(fn: string, params: tsdoc.DocParamCollection) {
       stream.write('| ' + paramName + ' | `' + paramType.replace(';}', ' }') + '` | ')
 
       if (param != null)
-        print(param.content)
+        print(param.content, true)
       else
         stream.write('None')
 

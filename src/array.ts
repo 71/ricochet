@@ -20,7 +20,7 @@ export interface ObservableArray<T> extends Array<T> {
   /**
    * Observes changes made to the array.
    *
-   * @param init If `true`, `push` will be called on initialization
+   * @param init - If `true`, `push` will be called on initialization
    * with the content of the array.
    */
   observe(observer: ArrayObserver<T>, init?: boolean): Subscription

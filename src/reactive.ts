@@ -162,7 +162,7 @@ export function constant<T>(value: T): Subscribable<T> {
  * Returns an observable that will be updated when any of the given observables
  * changes.
  *
- * @see https://github.com/adamhaile/S for the inspiration for this function.
+ * See [S.js](https://github.com/adamhaile/S) for the inspiration for this function.
  */
 export function compute<T>(
   computation: ($: <U>(observable: Observable<U>, defaultValue?: U) => U) => T

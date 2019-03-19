@@ -17,20 +17,16 @@ type NestedNode =
   // ... a DOM element,
   | Element
   // ... a primitive,
-  | number
-  | string
-  // ... an observable sequence of nested nodes,
-  | Observable<NestedNode>
+  | number | string
   // ... a list of nested nodes,
   | ReadonlyArray<NestedNode>
-  // ... or a custom node.
-  | CustomNode
+  // ... or an observable sequence of nested nodes.
+  | Observable<NestedNode>
 ```
 
-Therefore, the only thing that Ricochet needs to work is an [observable](#interface-observablet) stream,
-as defined by this [ECMAScript Observable proposal](https://github.com/tc39/proposal-observable#api).
-Furthermore, since [RxJS](https://github.com/ReactiveX/rxjs) and other reactive libraries already implement this
-proposal, it is possible to use them with Ricochet immediately, without wrappers of any sort.
+Therefore, Ricochet can render any array, [observable sequence](#interface-observablet)
+or node into the DOM, and make sure the rendered node stays in sync with the
+value that was rendered, without rendering the node multiple times.
 
 Ricochet does not optimize its operations by default, but [makes it extremely easy to add
 features such as memoization, update batching and efficient list rendering](#performances).
@@ -67,7 +63,7 @@ const Clock = () => {
 ```
 
 Now here it is in Ricochet. Please note that [`subject`](#function-subjecttinitialvalue-extendedsubjectt)
-(defined in [`ricochet/reactive`](./src/reactive.ts)), creates a stream similar to a
+(defined in [`ricochet/reactive`](./src/reactive.ts)), creates an observable similar to a
 [BehaviorSubject](https://rxjs-dev.firebaseapp.com/guide/subject#behaviorsubject).
 
 ```tsx
@@ -231,6 +227,13 @@ Subscribes to changes to the value.
 
 #### `interface Observable<T>`
 Defines an observable value.
+
+
+
+This interface defines the bare minimum for Ricochet
+to interface with reactive libraries that implement this
+[ECMAScript Observable proposal](https://github.com/tc39/proposal-observable#api),
+such as [RxJS](https://github.com/ReactiveX/rxjs).
 
 
 
@@ -402,7 +405,7 @@ Defines an array whose changes can be observed.
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
 | observer | `ArrayObserver<T>` | None |
-| init | `boolean` | None |
+| init | `boolean` | If `true`, `push` will be called on initialization with the content of the array.  |
 
 Observes changes made to the array.
 
@@ -593,8 +596,7 @@ changes.
 
 
 
-@see
- https://github.com/adamhaile/S for the inspiration for this function.
+See [S.js](https://github.com/adamhaile/S) for the inspiration for this function.
 
 
 

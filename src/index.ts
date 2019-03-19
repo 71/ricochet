@@ -43,6 +43,11 @@ export interface Subscribable<T> extends Observable<T> {
 
 /**
  * Defines an observable value.
+ *
+ * This interface defines the bare minimum for Ricochet
+ * to interface with reactive libraries that implement this
+ * [ECMAScript Observable proposal](https://github.com/tc39/proposal-observable#api),
+ * such as [RxJS](https://github.com/ReactiveX/rxjs).
  */
 export interface Observable<T> {
   [ObservableSymbol](): Subscribable<T>
