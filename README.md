@@ -55,7 +55,7 @@ const Clock = () => {
 }
 ```
 
-Now here it is in Ricochet. Please note that `subject` (defined in
+Now here it is in Ricochet. Please note that [`subject`](#function-subject) (defined in
 [`ricochet/reactive`](./src/reactive.ts)), creates a stream similar to a
 [BehaviorSubject](https://rxjs-dev.firebaseapp.com/guide/subject#behaviorsubject).
 
@@ -92,48 +92,35 @@ will be recomputed when the stream changes, allocations should be less common,
 and changes to the DOM should be as rare as if a diffing algorithm had been used.
 
 **However**, in some cases a simple change to a reactive stream may
-impact large parts of the DOM. For instance, when a list changes. In those cases,
-a few utilities are provided.
+impact large parts of the DOM, which will lead to a slower redraw. For these cases,
+a few performances may be improved by caching nodes, by customizing renders, by batching
+changes, or by using specialized tools.
+
 
 #### `observableArray`
 
-The `observableArray<T>(T[]): ObservableArray<T>` function takes an array,
-and returns another array, augmented with two functions:
+The [`ricochet/array`](#ricochetarray) module provides the
+[`observableArray<T>`](#function-observablearray) function, which takes an array
+and returns an [`ObservableArray<T>`](#interface-observablearray). This specialized
+array provides the same interface as a regular array, but is able to efficiently
+map changes to its underlying data to the DOM by implementing [`CustomNode`](#interface-customnode).
 
 ```tsx
-interface ObservableArray<T> extends Array<T> {
-  map<R>(f: (value: T) => R): ObservableArray<R>
-  observe(observer: ArrayObserver<T>): Unsubscribable
-}
-```
-
-An `ArrayObserver<T>` must define the `set(i: number, v: T)` method, and may also
-observe calls to other methods, such as `push`, `pop`, etc.
-
-Internally, any part of the DOM that is rendered as an `ObservableArray<T>` will
-be efficiently mapped into DOM nodes. All array operations will directly
-manipulate the DOM nodes corresponding to each element, instead of redrawing the
-entire list on every change.
-
-Using `observableArray` is very simple: when an array may change after being
-drawn, it should be wrapped in an `ObservableArray`.
-
-```tsx
-- const numbers = []
-+ const numbers = observableArray()
+const numbers = observableArray()
 
 return (
   <div>
+    {/* 'push' is specialized to directly add new nodes to the DOM,
+        without updating the rest of the elements. */}
     <button onclick={() => numbers.push(numbers.length)}>Add number</button>
 
+    {/* 'map' is specialized to return another `ObservableArray`. */}
     {numbers.map(x => <h2>{x}</h2>)}
   </div>
 )
 ```
 
----
-
-## API
+# API
 
 ### `ricochet`
 The core Ricochet API, used to render JSX nodes.
@@ -155,9 +142,6 @@ Defines a subscription, which can be unsubscribed of.
 
 
 ##### `unsubscribe(): void`
-| Parameter | Type | Description |
-| --------- | ---- | ----------- |
-
 Cancels the subscription, disposing of resources and cancelling pending operations.
 
 
@@ -167,7 +151,7 @@ Defines a value whose changes can be subscribed to.
 
 
 
-##### `subscribe(observer: Observer<T>): Subscription`
+##### `subscribe(observer): Subscription`
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
 | observer | `Observer<T>` | None |
@@ -223,8 +207,14 @@ A custom-rendered node.
 
 
 
-##### `render(parent: Element, previous: {
-        value: Node`
+##### `render(parent, previous, next, r): void`
+| Parameter | Type | Description |
+| --------- | ---- | ----------- |
+| parent | `Element` | None |
+| previous | `{ value: Node; }` | None |
+| next | `{ value: Node; }` | None |
+| r | `RenderFunction` | None |
+
 Renders the node in the DOM, as a child of the given parent.
 
 
@@ -248,7 +238,7 @@ type Component<Props extends object, ReturnType extends Node | Observable<Node>>
 ```
 
 
-#### `function h<Tag>(tag: Tag, attrs: JSX.IntrinsicAttributes & WritablePart<JSX.IntrinsicElements[Tag]>, ...children: NodeArray): JSX.IntrinsicElements[Tag]`
+#### `function h<Tag>(tag, attrs, ...children): JSX.IntrinsicElements[Tag]`
  - `Tag`: `keyof JSX.IntrinsicElements`
 
 | Parameter | Type | Description |
@@ -261,7 +251,7 @@ Renders an intrinsic element.
 
 
 
-#### `function h(tag: string, attrs: JSX.IntrinsicAttributes & WritablePart<Element>, ...children: NodeArray): JSX.Element`
+#### `function h(tag, attrs, ...children): JSX.Element`
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -273,7 +263,7 @@ Renders an unknown intrinsic element.
 
 
 
-#### `function h<P, E, K, E>>(component: K, props: JSX.IntrinsicAttributes & P & WritablePart<E>, ...children: NodeArray): E`
+#### `function h<P, E, K, E>>(component, props, ...children): E`
  - `P`: `object`
  - `E`: `JSX.Element`
  - `K`: `Component<P`
@@ -288,7 +278,7 @@ Renders a component.
 
 
 
-#### `function attach(...subscriptions: Subscription[]): void`
+#### `function attach(...subscriptions): void`
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -298,7 +288,7 @@ Attaches the given subscriptions to the element that is currently being initiali
 
 
 
-#### `function mount(node: ObservableNode): Element`
+#### `function mount(node): Element`
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -308,7 +298,7 @@ Mounts an observable node as a simple element.
 
 
 
-#### `function mount(node: NestedNode, el: Element): Subscription`
+#### `function mount(node, el): Subscription`
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -339,7 +329,7 @@ Defines an array whose changes can be observed.
 
 
 
-##### `observe(observer: ArrayObserver<T>, init?: boolean): Subscription`
+##### `observe(observer, init): Subscription`
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
 | observer | `ArrayObserver<T>` | None |
@@ -350,7 +340,7 @@ Observes changes made to the array.
 
 
 
-##### `map<R>(f: (value: T, index: number, array: Array<T>) => R, thisArg?: any): ObservableArray<R>`
+##### `map<R>(f, thisArg): ObservableArray<R>`
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
 | f | `(value: T, index: number, array: Array<T>) => R` | None |
@@ -361,7 +351,7 @@ according to a `map` function.
 
 
 
-#### `function isObservableArray<T>(array: any): array is ObservableArray<T>`
+#### `function isObservableArray<T>(array): array is ObservableArray<T>`
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -371,7 +361,7 @@ Returns whether the given array is an `ObservableArray`.
 
 
 
-#### `function observableArray<T>(...array: T[]): ObservableArray<T>`
+#### `function observableArray<T>(...array): ObservableArray<T>`
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -385,7 +375,7 @@ Returns an observable array.
 ### `ricochet/async`
 Utilities for rendering with promises.
 
-#### `function async<E>(component: Promise<E>): E`
+#### `function async<E>(component): E`
  - `E`: `Element`
 
 | Parameter | Type | Description |
@@ -397,7 +387,7 @@ promise when it resolves.
 
 
 
-#### `function async<P, E>(component: (props: P) => Promise<E>): Component<P, E>`
+#### `function async<P, E>(component): Component<P, E>`
  - `P`: `{}`
  - `E`: `Element`
 
@@ -410,15 +400,15 @@ whose element will be replaced once the promise resolves.
 
 
 
-#### `function Async<P, E, K>({ component, props }: P & { component: Component<P & K, E>; props: Promise<K>;}): E`
+#### `function Async<P, E, K>({ component, props }): E`
  - `P`: `{}`
  - `E`: `Element`
  - `K`: `{}`
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
-| `{ component, props }` | `P & { component: Component<P & K` | None |
-| props | `Promise<K>;}` | None |
+| component | `Component<P & K, E>` | None |
+| props | `Promise<K>` | None |
 
 Given a component, some of its properties, and a promise that resolves
 to the rest of its properties, returns an element that will be replaced
@@ -426,13 +416,14 @@ by the resolved element when the promise finishes.
 
 
 
-#### `function Async<P, E>({ component, ...props }: P & { component: Promise<Component<P, E>>;}): E`
+#### `function Async<P, E>({ component, ...props }): E`
  - `P`: `{}`
  - `E`: `Element`
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
-| `{ component, ...props }` | `P & { component: Promise<Component<P` | None |
+| component | `Promise<Component<P, E>>` | None |
+| props | `P` | None |
 
 Given a promise that resolves to a component and its properties, returns
 an element that will be replaced by the resolved element when the promise finishes.
@@ -458,7 +449,7 @@ Gets or sets the underlying value.
 
 
 
-##### `setUnderlyingValue(newValue: T): void`
+##### `setUnderlyingValue(newValue): void`
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
 | newValue | `T` | None |
@@ -467,7 +458,7 @@ Sets the underlying value without notifying observers.
 
 
 
-##### `map<R>(map: (input: T) => R): Observable<R>`
+##### `map<R>(map): Observable<R>`
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
 | map | `(input: T) => R` | None |
@@ -476,7 +467,7 @@ Returns a new `Observable` that gets updated when this subject changes.
 
 
 
-##### `map<R>(map: (input: T) => R, unmap: (input: R) => T): ExtendedSubject<R>`
+##### `map<R>(map, unmap): ExtendedSubject<R>`
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
 | map | `(input: T) => R` | None |
@@ -486,7 +477,7 @@ Returns a new `Subject` value that propagates changes to values both ways.
 
 
 
-#### `function isSubject<T>(value: any): value is ExtendedSubject<T>`
+#### `function isSubject<T>(value): value is ExtendedSubject<T>`
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -496,7 +487,7 @@ Returns whether the given value is a subject created with `subject`.
 
 
 
-#### `function subject<T>(initialValue: T): ExtendedSubject<T>`
+#### `function subject<T>(initialValue): ExtendedSubject<T>`
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -506,7 +497,7 @@ Returns a reactive wrapper around the given value.
 
 
 
-#### `function constant<T>(value: T): Subscribable<T>`
+#### `function constant<T>(value): Subscribable<T>`
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -522,7 +513,7 @@ is expected somewhere, but a single constant value can be provided.
 
 
 
-#### `function compute<T>(computation: ($: <U>(observable: Observable<U>, defaultValue?: U) => U) => T): Subscribable<T>`
+#### `function compute<T>(computation): Subscribable<T>`
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -538,7 +529,7 @@ changes.
 
 
 
-#### `function combine<O>(...observables: O): Subscribable<{ [K in keyof O]: O[K] extends Observable<infer T> ? T : never`
+#### `function combine<O>(...observables): Subscribable<{ [K in keyof O]: O[K] extends Observable<infer T> ? T : never`
  - `O`: `Observable<any>[]`
 
 | Parameter | Type | Description |
@@ -558,13 +549,13 @@ Interop helpers for [RxJS](https://github.com/ReactiveX/rxjs).
 ### `ricochet/interop/wc`
 Utilities for defining Web Components.
 
-#### `function makeCustomElement<P, E>(component: Component<P, E>, translateProperties: object & { [K in keyof P]: (value?: string) => P[K];}): typeof HTMLElement`
+#### `function makeCustomElement<P, E>(component, translateProperties): typeof HTMLElement`
  - `P`: `object`
  - `E`: `JSX.Element`
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
-| component | `Component<P` | None |
+| component | `Component<P, E>` | None |
 | translateProperties | `object & { [K in keyof P]: (value?: string) => P[K];}` | None |
 
 Creates a custom element (or web component) out of a JSX component.

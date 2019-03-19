@@ -2,13 +2,15 @@ import { createWriteStream, readFileSync, writeFileSync } from 'fs'
 import * as tsdoc from '@microsoft/tsdoc'
 
 
+const paramRegex = /(\w+|\{[\w, .]+\})\??: (\(.+?\) => .+?|[^{}<>]+?|.+?>|.+?})(,|\):)/g
+
 // Remove previous API from README
-writeFileSync('README.md', readFileSync('README.md', 'utf8').replace(/\s+## API[\s\S]+$/, ''))
+writeFileSync('README.md', readFileSync('README.md', 'utf8').replace(/\s+# API[\s\S]+$/, ''))
 
 // Append the API to the freshly modified README
 const stream = createWriteStream('README.md', { flags: 'a+' })
 
-stream.write('\n\n## API\n')
+stream.write('\n\n# API\n')
 
 const files = {
   'index.d.ts': {
@@ -47,7 +49,7 @@ for (const file in files) {
   stream.write('### `' + path + '`\n')
   stream.write(header + '\n\n')
 
-  let docRegex = /(\/\*\*[\s\S]+?\n\s+\*\/)\s*((?:export interface[\s\S]+?{$)|export declare function[\s\S]+?\): .+;$|(?:\w[\s\S]+?);$)/gm
+  let docRegex = /(\/\*\*[\s\S]+?\n\s+\*\/)\s*(render[\s\S]+?void;|export interface[\s\S]+?{$|export declare function[\s\S]+?\): .+;$|(?:\w[\s\S]+?);$)/gm
   let result = null as RegExpExecArray
 
   while (result = docRegex.exec(content)) {
@@ -58,7 +60,11 @@ for (const file in files) {
     if (decl.startsWith('declare type'))
       continue
 
-    decl = decl.replace(/;$/, '').replace(/\s*{$/, '')
+    decl = decl
+            .replace(/;$/, '')
+            .replace(/\s*{$/, '')
+            .replace(/ +/g, ' ')
+            .replace(/\r?\n|\r/g, '')
 
     const ctx = parser.parseString(doc)
     const comment = ctx.docComment
@@ -69,16 +75,15 @@ for (const file in files) {
       decl = decl.trim()
               .replace('export ', '')
               .replace('declare ', '')
-              .replace(/ +/g, ' ')
-              .replace(/\r?\n|\r/g, '')
 
       if (decl.startsWith('function')) {
         const [newDecl, list] = formatConstraints(decl)
 
-        stream.write('#### `' + newDecl + '`\n')
+        stream.write('#### `' + stripParameterTypes(newDecl) + '`\n')
         stream.write(list + '\n')
 
-        printParameters(newDecl, comment.params)
+        if (!decl.includes('():'))
+          printParameters(newDecl, comment.params)
       } else if (decl.startsWith('type')) {
         const [newDecl, list] = formatConstraints(decl)
 
@@ -97,9 +102,9 @@ for (const file in files) {
         stream.write('```\n\n')
       }
     } else {
-      stream.write('##### `' + decl.trim() + '`\n')
+      stream.write('##### `' + stripParameterTypes(decl).trim() + '`\n')
 
-      if (decl.includes('):'))
+      if (decl.includes('):') && !decl.includes('():'))
         printParameters(decl, comment.params)
 
       comment.summarySection.nodes.forEach(print)
@@ -150,25 +155,51 @@ function formatConstraints(fn: string): [string, string] {
   return [fn.replace(regex, '$1$3'), list]
 }
 
+function stripParameterTypes(fn: string) {
+  return fn.replace(paramRegex, '$1$3')
+}
+
 function printParameters(fn: string, params: tsdoc.DocParamCollection) {
   stream.write('| Parameter | Type | Description |\n')
   stream.write('| --------- | ---- | ----------- |\n')
 
-  let regex = /(\w+|\{[\w, .]+\})\??: (\(.+?\) => .+?|.+?)(,|\):)/g
   let result = null as RegExpExecArray
 
-  while (result = regex.exec(fn)) {
-    const param = params.blocks.find(x => x.parameterName === result[1])
-    const paramName = result[1].includes(',') ? '`' + result[1] + '`' : result[1]
+  while (result = paramRegex.exec(fn)) {
+    const paramLhs = result[1]
+    const paramPairs = new Array<[string, string]>()
 
-    stream.write('| ' + paramName + ' | `' + result[2] + '` | ')
+    if (paramLhs.includes(',')) {
+      const paramNames = paramLhs.substring(2, paramLhs.length - 2).split(', ')
 
-    if (param != null)
-      print(param.content)
-    else
-      stream.write('None')
+      for (const paramName of paramNames) {
+        if (paramName.startsWith('...')) {
+          const beforeAmpersand = /(.+?) &/g.exec(result[2])[1]
 
-    stream.write(' |\n')
+          paramPairs.push([paramName.substr(3), beforeAmpersand])
+        } else {
+          const paramType = result[2].substring(result[2].indexOf(paramName + ': ') + paramName.length + 2)
+          const paramTypeEnd = paramType.indexOf(';')
+
+          paramPairs.push([paramName, paramType.substring(0, paramTypeEnd)])
+        }
+      }
+    } else {
+      paramPairs.push([paramLhs, result[2]])
+    }
+
+    for (const [paramName, paramType] of paramPairs) {
+      const param = params.blocks.find(x => x.parameterName === paramName)
+
+      stream.write('| ' + paramName + ' | `' + paramType + '` | ')
+
+      if (param != null)
+        print(param.content)
+      else
+        stream.write('None')
+
+      stream.write(' |\n')
+    }
   }
 
   stream.write('\n')
