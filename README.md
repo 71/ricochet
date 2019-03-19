@@ -234,36 +234,39 @@ ensuring that Ricochet keeps working as intended.
 
 # API
 
-### `ricochet`
+### [`ricochet`](src/index.ts)
 The core Ricochet API, used to render JSX nodes.
 
-#### `type Observer<T>`
+#### [`type Observer<T>`](src/index.ts#L16-23)
 
 Defines an observer.
 
 
 Defined as:
 ```typescript
-type Observer<T> = ((newValue: T) => void) | { next(newValue: T): void; complete?(): void }
+type Observer<T> = ((newValue: T) => void) | {
+  next(newValue: T): void
+  complete?(): void
+}
 ```
 
 
-#### `interface Subscription`
+#### [`interface Subscription`](src/index.ts#L24-27)
 Defines a subscription, which can be unsubscribed of.
 
 
 
-##### `unsubscribe(): void`
+##### [`unsubscribe(): void`](src/index.ts#L28-33)
 Cancels the subscription, disposing of resources and cancelling pending operations.
 
 
 
-#### `interface Subscribable<T> extends Observable<T>`
+#### [`interface Subscribable<T> extends Observable<T>`](src/index.ts#L34-37)
 Defines a value whose changes can be subscribed to.
 
 
 
-##### `subscribe(observer): Subscription`
+##### [`subscribe(observer): Subscription`](src/index.ts#L38-43)
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
 | observer | `Observer<T>` | None |
@@ -272,7 +275,7 @@ Subscribes to changes to the value.
 
 
 
-#### `interface Observable<T>`
+#### [`interface Observable<T>`](src/index.ts#L44-55)
 Defines an observable value.
 
 
@@ -284,7 +287,7 @@ such as [RxJS](https://github.com/ReactiveX/rxjs).
 
 
 
-#### `type MaybeObservable<T>`
+#### [`type MaybeObservable<T>`](src/index.ts#L56-61)
 
 Defines a value that may be `Observable`.
 
@@ -295,7 +298,7 @@ type MaybeObservable<T> = Observable<T> | T
 ```
 
 
-#### `type NestedNode`
+#### [`type NestedNode`](src/index.ts#L62-66)
 
 An arbitrarily nested DOM `Node`.
 
@@ -306,34 +309,33 @@ type NestedNode = Node | CustomNode | string | number | NodeArray | ObservableNo
 ```
 
 
-#### `interface ObservableNode extends Observable<NestedNode>`
+#### [`interface ObservableNode extends Observable<NestedNode>`](src/index.ts#L67-71)
 An observable `NestedNode`.
 
 
 
-#### `interface NodeArray extends Array<NestedNode>`
+#### [`interface NodeArray extends Array<NestedNode>`](src/index.ts#L72-76)
 A list of `NestedNode`s.
 
 
 
-#### `interface RenderFunction`
+#### [`type RenderFunction`](src/index.ts#L77-81)
+
 The function used to render a `NestedNode`.
 
 
+Defined as:
+```typescript
+type RenderFunction = (value: NestedNode, previous: { value: Node }, next: { value: Node }) => void
+```
 
-#### `interface CustomNode`
+
+#### [`interface CustomNode`](src/index.ts#L82-85)
 A custom-rendered node.
 
 
 
-##### `render(parent, previous, next, r): void`
-| Parameter | Type | Description |
-| --------- | ---- | ----------- |
-| parent | `Element` | None |
-| previous | `{ value: Node; }` | None |
-| next | `{ value: Node; }` | None |
-| r | `RenderFunction` | None |
-
+##### [`render(parent, previous: { value: Node`](src/index.ts#L86-96)
 Renders the node in the DOM, as a child of the given parent.
 
 
@@ -344,7 +346,7 @@ may be rendered as several DOM nodes, these DOM nodes should be inserted **befor
 
 
 
-#### `type Component<Props, ReturnType>`
+#### [`type Component<Props, ReturnType>`](src/index.ts#L109-114)
  - `Props`: `object`
  - `ReturnType`: `Node | Observable<Node>`
 
@@ -357,7 +359,7 @@ type Component<Props extends object, ReturnType extends Node | Observable<Node>>
 ```
 
 
-#### `function h<Tag>(tag, attrs, ...children): JSX.IntrinsicElements[Tag]`
+#### [`function h<Tag>(tag, attrs, ...children): JSX.IntrinsicElements[Tag]`](src/index.ts#L115-123)
  - `Tag`: `keyof JSX.IntrinsicElements`
 
 | Parameter | Type | Description |
@@ -370,7 +372,7 @@ Renders an intrinsic element.
 
 
 
-#### `function h(tag, attrs, ...children): JSX.Element`
+#### [`function h(tag, attrs, ...children): JSX.Element`](src/index.ts#L124-132)
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -382,10 +384,10 @@ Renders an unknown intrinsic element.
 
 
 
-#### `function h<P, E, K, E>>(component, props, ...children): E`
+#### [`function h<P, E, K>(component, props, ...children): E`](src/index.ts#L133-141)
  - `P`: `object`
  - `E`: `JSX.Element`
- - `K`: `Component<P`
+ - `K`: `Component<P, E>`
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -397,7 +399,7 @@ Renders a component.
 
 
 
-#### `function attach(...subscriptions): void`
+#### [`function attach(...subscriptions): void`](src/index.ts#L216-227)
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -407,7 +409,7 @@ Attaches the given subscriptions to the element that is currently being initiali
 
 
 
-#### `function mount(node): Element`
+#### [`function mount(node): Element`](src/index.ts#L228-232)
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -417,7 +419,7 @@ Mounts an observable node as a simple element.
 
 
 
-#### `function mount(node, el): Subscription`
+#### [`function mount(node, el): Subscription`](src/index.ts#L233-237)
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -429,26 +431,33 @@ Mounts the given observable node as a child of the given element.
 
 
 
-### `ricochet/array`
+### [`ricochet/array`](src/array.ts)
 Utilities for rendering lists efficiently with the `ObservableArray` type.
 
-#### `type ArrayObserver<T>`
+#### [`type ArrayObserver<T>`](src/array.ts#L7-18)
 
 Defines an object that can listen to changes to an `ObservableArray`.
 
 
 Defined as:
 ```typescript
-type ArrayObserver<T> = { [key in string & keyof Array<T>]?: Array<T>[key] extends (...args: infer Args) => any ? (...args: Args) => void : never
+type ArrayObserver<T> = {
+  [key in string & keyof Array<T>]?:
+    Array<T>[key] extends (...args: infer Args) => any
+      ? (...args: Args) => void
+      : never
+} & {
+  set: (index: number, value: T) => void
+}
 ```
 
 
-#### `interface ObservableArray<T> extends Array<T>`
+#### [`interface ObservableArray<T> extends Array<T>`](src/array.ts#L19-22)
 Defines an array whose changes can be observed.
 
 
 
-##### `observe(observer, init): Subscription`
+##### [`observe(observer, init): Subscription`](src/array.ts#L23-30)
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
 | observer | `ArrayObserver<T>` | None |
@@ -459,7 +468,7 @@ Observes changes made to the array.
 
 
 
-##### `map<R>(f, thisArg): ObservableArray<R>`
+##### [`map<R>(f, thisArg): ObservableArray<R>`](src/array.ts#L31-37)
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
 | f | `(value: T, index: number, array: Array<T>) => R` | None |
@@ -470,7 +479,7 @@ according to a `map` function.
 
 
 
-#### `function isObservableArray<T>(array): array is ObservableArray<T>`
+#### [`function isObservableArray<T>(array): array is ObservableArray<T>`](src/array.ts#L38-44)
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -480,7 +489,7 @@ Returns whether the given array is an `ObservableArray`.
 
 
 
-#### `function observableArray<T>(...array): ObservableArray<T>`
+#### [`function observableArray<T>(...array): ObservableArray<T>`](src/array.ts#L45-106)
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -491,10 +500,10 @@ Returns an observable array.
 
 
 
-### `ricochet/async`
+### [`ricochet/async`](src/async.ts)
 Utilities for rendering with promises.
 
-#### `function async<E>(component): E`
+#### [`function async<E>(component): E`](src/async.ts#L14-19)
  - `E`: `Element`
 
 | Parameter | Type | Description |
@@ -506,7 +515,7 @@ promise when it resolves.
 
 
 
-#### `function async<P, E>(component): Component<P, E>`
+#### [`function async<P, E>(component): Component<P, E>`](src/async.ts#L20-25)
  - `P`: `{}`
  - `E`: `Element`
 
@@ -519,7 +528,7 @@ whose element will be replaced once the promise resolves.
 
 
 
-#### `function Async<P, E, K>({ component, props }): E`
+#### [`function Async<P, E, K>({ component, props }): E`](src/async.ts#L46-52)
  - `P`: `{}`
  - `E`: `Element`
  - `K`: `{}`
@@ -535,7 +544,7 @@ by the resolved element when the promise finishes.
 
 
 
-#### `function Async<P, E>({ component, ...props }): E`
+#### [`function Async<P, E>({ component, ...props }): E`](src/async.ts#L53-58)
  - `P`: `{}`
  - `E`: `Element`
 
@@ -550,25 +559,40 @@ an element that will be replaced by the resolved element when the promise finish
 
 
 
-### `ricochet/reactive`
+### [`ricochet/reactive`](src/reactive.ts)
 Utilities for creating and combining observable streams and subjects.
 
-#### `interface Subject<T> extends Subscribable<T>`
+#### [`interface Subject<T> extends Subscribable<T>`](src/reactive.ts#L5-8)
 Defines a reactive value that can be updated.
 
 
 
-#### `interface ExtendedSubject<T> extends Subject<T>`
+##### [`readonly value: T`](src/reactive.ts#L9-11)
 Returns the underlying value.
 
 
 
-##### `value: T`
+##### [`next(newValue): void`](src/reactive.ts#L12-18)
+| Parameter | Type | Description |
+| --------- | ---- | ----------- |
+| newValue | `T` | None |
+
+Updates the underlying value, notifying all observers of a change.
+
+
+
+#### [`interface ExtendedSubject<T> extends Subject<T>`](src/reactive.ts#L19-23)
+Defines the full set of operations supported by the `Subject`
+returned by `subject`.
+
+
+
+##### [`value: T`](src/reactive.ts#L24-28)
 Gets or sets the underlying value.
 
 
 
-##### `setUnderlyingValue(newValue): void`
+##### [`setUnderlyingValue(newValue): void`](src/reactive.ts#L29-33)
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
 | newValue | `T` | None |
@@ -577,7 +601,7 @@ Sets the underlying value without notifying observers.
 
 
 
-##### `map<R>(map): Observable<R>`
+##### [`map<R>(map): Observable<R>`](src/reactive.ts#L34-38)
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
 | map | `(input: T) => R` | None |
@@ -586,7 +610,7 @@ Returns a new `Observable` that gets updated when this subject changes.
 
 
 
-##### `map<R>(map, unmap): ExtendedSubject<R>`
+##### [`map<R>(map, unmap): ExtendedSubject<R>`](src/reactive.ts#L39-45)
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
 | map | `(input: T) => R` | None |
@@ -596,7 +620,7 @@ Returns a new `Subject` value that propagates changes to values both ways.
 
 
 
-#### `function isSubject<T>(value): value is ExtendedSubject<T>`
+#### [`function isSubject<T>(value): value is ExtendedSubject<T>`](src/reactive.ts#L46-52)
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -606,7 +630,7 @@ Returns whether the given value is a subject created with `subject`.
 
 
 
-#### `function subject<T>(initialValue): ExtendedSubject<T>`
+#### [`function subject<T>(initialValue): ExtendedSubject<T>`](src/reactive.ts#L53-129)
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -616,7 +640,7 @@ Returns a reactive wrapper around the given value.
 
 
 
-#### `function constant<T>(value): Subscribable<T>`
+#### [`function constant<T>(value): Subscribable<T>`](src/reactive.ts#L130-160)
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -632,7 +656,7 @@ is expected somewhere, but a single constant value can be provided.
 
 
 
-#### `function compute<T>(computation): Subscribable<T>`
+#### [`function compute<T>(computation): Subscribable<T>`](src/reactive.ts#L161-216)
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -667,7 +691,7 @@ b.next(20) // Prints '30'
 
 ```
 
-#### `function combine<O>(...observables): Subscribable<{ [K in keyof O]: O[K] extends Observable<infer T> ? T : never`
+#### [`function combine<O>(...observables): Subscribable<{ [K in keyof O]: O[K] extends Observable<infer T> ? T : never }>`](src/reactive.ts#L217-234)
  - `O`: `Observable<any>[]`
 
 | Parameter | Type | Description |
@@ -680,14 +704,14 @@ observables gets updated as well.
 
 
 
-### `ricochet/interop/rxjs`
+### [`ricochet/interop/rxjs`](src/interop/rxjs.ts)
 Interop helpers for [RxJS](https://github.com/ReactiveX/rxjs).
 
 
-### `ricochet/interop/wc`
+### [`ricochet/interop/wc`](src/interop/wc.ts)
 Utilities for defining Web Components.
 
-#### `function makeCustomElement<P, E>(component, translateProperties): typeof HTMLElement`
+#### [`function makeCustomElement<P, E>(component, translateProperties): typeof HTMLElement`](src/interop/wc.ts#L5-28)
  - `P`: `object`
  - `E`: `JSX.Element`
 

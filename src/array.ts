@@ -8,7 +8,10 @@ const observableArraySymbol = Symbol('observableArray')
  * Defines an object that can listen to changes to an `ObservableArray`.
  */
 export type ArrayObserver<T> = {
-  [key in string & keyof Array<T>]?: Array<T>[key] extends (...args: infer Args) => any ? (...args: Args) => void : never
+  [key in string & keyof Array<T>]?:
+    Array<T>[key] extends (...args: infer Args) => any
+      ? (...args: Args) => void
+      : never
 } & {
   set: (index: number, value: T) => void
 }

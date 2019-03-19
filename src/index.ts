@@ -119,9 +119,7 @@ export interface NodeArray extends Array<NestedNode> {}
 /**
  * The function used to render a `NestedNode`.
  */
-export interface RenderFunction {
-  (value: NestedNode, previous: { value: Node }, next: { value: Node }): void
-}
+export type RenderFunction = (value: NestedNode, previous: { value: Node }, next: { value: Node }) => void
 
 /**
  * A custom-rendered node.
@@ -188,6 +186,7 @@ export function h<P extends object, E extends JSX.Element, K extends Component<P
   ...children: NodeArray
 ): E
 
+/** @ignore */
 export function h(
   tag        : string | Component<any, any>,
   props      : JSX.IntrinsicAttributes,
@@ -302,7 +301,7 @@ const initSubscriptions = [] as Set<Subscription>[]
 /**
  * Attaches the given subscriptions to the element that is currently being initialized.
  */
-export function attach(...subscriptions: Subscription[]) {
+export function attach(...subscriptions: Subscription[]): void {
   if (initSubscriptions.length === 0)
     throw new Error('`attach` can only be called in a component initializer.')
 
@@ -325,6 +324,7 @@ export function mount(node: ObservableNode): Element
  */
 export function mount(node: NestedNode, el: Element): Subscription
 
+/** @ignore */
 export function mount(node: NestedNode, el?: Element) {
   if (el === undefined) {
     const subscriptions = new Set<Subscription>()

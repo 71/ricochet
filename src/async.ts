@@ -23,6 +23,7 @@ export function async<E extends Element>(component: Promise<E>): E
  */
 export function async<P extends {}, E extends Element>(component: (props: P) => Promise<E>): Component<P, E>
 
+/** @ignore */
 export function async<P extends {}, E extends Element>(component: Promise<E> | ((props: P) => Promise<E>)): E | Component<P, E> {
   if (typeof component == 'function') {
     return props => {
@@ -47,7 +48,7 @@ export function async<P extends {}, E extends Element>(component: Promise<E> | (
  * to the rest of its properties, returns an element that will be replaced
  * by the resolved element when the promise finishes.
  */
-export function Async<P extends {}, E extends Element, K extends {}>({ component, props }: P & { component: Component<P & K, E>, props: Promise<K> }): E
+export function Async<P extends {}, E extends Element, K extends {}>({ component, props }: P & { component: Component<P & K, E>; props: Promise<K> }): E
 
 /**
  * Given a promise that resolves to a component and its properties, returns
@@ -55,6 +56,7 @@ export function Async<P extends {}, E extends Element, K extends {}>({ component
  */
 export function Async<P extends {}, E extends Element>({ component, ...props }: P & { component: Promise<Component<P, E>> }): E
 
+/** @ignore */
 export function Async<P extends {}, E extends Element, K extends {}>(
   { component, ...props }:
     (P & { component: Promise<Component<P, E>> }) |

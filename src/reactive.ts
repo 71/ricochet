@@ -9,7 +9,7 @@ export interface Subject<T> extends Subscribable<T> {
   /** Returns the underlying value. */
   readonly value: T
 
-  /** Updates the underlying value, setting its  */
+  /** Updates the underlying value, notifying all observers of a change. */
   next(newValue: T): void
 }
 

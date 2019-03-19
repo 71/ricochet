@@ -13,27 +13,27 @@ const stream = createWriteStream('README.md', { flags: 'a+' })
 stream.write('\n\n\n\n# API\n')
 
 const files = {
-  'index.d.ts': {
+  'src/index.ts': {
     path: 'ricochet',
     header: 'The core Ricochet API, used to render JSX nodes.',
   },
-  'array.d.ts': {
+  'src/array.ts': {
     path: 'ricochet/array',
     header: 'Utilities for rendering lists efficiently with the `ObservableArray` type.',
   },
-  'async.d.ts': {
+  'src/async.ts': {
     path: 'ricochet/async',
     header: 'Utilities for rendering with promises.',
   },
-  'reactive.d.ts': {
+  'src/reactive.ts': {
     path: 'ricochet/reactive',
     header: 'Utilities for creating and combining observable streams and subjects.',
   },
-  'interop/rxjs.d.ts': {
+  'src/interop/rxjs.ts': {
     path: 'ricochet/interop/rxjs',
     header: 'Interop helpers for [RxJS](https://github.com/ReactiveX/rxjs).',
   },
-  'interop/wc.d.ts': {
+  'src/interop/wc.ts': {
     path: 'ricochet/interop/wc',
     header: 'Utilities for defining Web Components.',
   },
@@ -46,40 +46,72 @@ for (const file in files) {
   const content = readFileSync(file, 'utf8')
 
   stream.write('\n')
-  stream.write('### `' + path + '`\n')
+  stream.write('### [`' + path + '`](' + file + ')\n')
   stream.write(header + '\n\n')
 
-  let docRegex = /(\/\*\*[\s\S]+?\n\s+\*\/)\s*(render[\s\S]+?void;|export declare type[^{}]+?{[^{}]+?};$|export interface[\s\S]+?{$|export declare function[\s\S]+?\): .+;$|(?:\w[\s\S]+?);$)/gm
+  let docRegex = /(\/\*\*[\s\S]+?\*\/)\s+((?:export|  )[\S\s]+?)(?=\/(?:\/|\*\*|$))/g
   let result = null as RegExpExecArray
 
+  let previousEnd = 0
+  let currentLine = 1
+
   while (result = docRegex.exec(content)) {
+    if (currentLine == 1)
+      currentLine += countLines(content.substr(0, result.index))
+
+    let startLine = currentLine
+
+    currentLine += countLines(result[0])
+
+    previousEnd = result.index
+
     let [_, doc, decl] = result
 
+    if (doc.includes('@ignore'))
+      continue
+
+    doc = doc.trim()
+    decl = decl.trim()
+
+    if (decl == '' || doc == '')
+      continue
     if (decl.includes('unique symbol'))
       continue
-    if (decl.startsWith('declare type'))
+    if (decl.startsWith('type'))
       continue
 
-    decl = decl
-            .replace(/;$/, '')
-            .replace(/\s*{$/, '')
-            .replace(/ +/g, ' ')
-            .replace(/\r?\n|\r/g, '')
+    const startOfDoc = doc.lastIndexOf('/**')
 
-    const ctx = parser.parseString(doc)
+    startLine += countLines(doc.substr(0, startOfDoc))
+
+    const link = `(${file}#L${startLine}-${currentLine - 1})\n`
+    const topLevel = decl.startsWith('export ')
+
+    if (topLevel)
+      decl = decl.substring(7)
+
+    // With that out of the way, let's clean up our strings
+    decl = decl
+            .replace(/\r?\n|\r/g, ';')
+            .replace(/ +/g, ' ')
+            .replace(/(?<!T) +:/g, ':')
+            .replace(/([({,)]);/g, '$1')
+            .replace(/[;,]([})])/g, '$1')
+            .replace(/\( +/g, '(')
+            .replace(/^(interface.+?)\s+{.*$/, '$1')
+            .replace(/^(function.+?(<.+?>.*?)?\(.*?\).*?)\s+{.*$/g, '$1')
+            .replace(/([^{\s])}/g, '$1 }')
+
+    const ctx = parser.parseString(doc.substr(doc.lastIndexOf('/**')))
     const comment = ctx.docComment
 
     ctx.log.messages.forEach(msg => console.error(msg.toString()))
 
-    if (decl.startsWith('export')) {
-      decl = decl.trim()
-              .replace('export ', '')
-              .replace('declare ', '')
-
+    if (topLevel) {
       if (decl.startsWith('function')) {
         const [newDecl, list] = formatConstraints(decl)
 
-        stream.write('#### `' + stripParameterTypes(newDecl) + '`\n')
+        stream.write('#### [`' + stripParameterTypes(newDecl) + '`]' + link)
         stream.write(list + '\n')
 
         if (!decl.includes('():'))
@@ -87,10 +119,10 @@ for (const file in files) {
       } else if (decl.startsWith('type')) {
         const [newDecl, list] = formatConstraints(decl)
 
-        stream.write('#### `' + newDecl.substring(0, newDecl.indexOf('=') - 1) + '`\n')
+        stream.write('#### [`' + newDecl.substring(0, newDecl.indexOf('=') - 1) + '`]' + link)
         stream.write(list + '\n')
       } else {
-        stream.write('#### `' + decl + '`\n')
+        stream.write('#### [`' + decl + '`]' + link)
       }
 
       comment.summarySection.nodes.forEach(n => print(n, false))
@@ -98,11 +130,13 @@ for (const file in files) {
       if (decl.startsWith('type')) {
         stream.write('Defined as:\n')
         stream.write('```typescript\n')
-        stream.write(decl.replace(';}', ' }') + '\n')
+        stream.write(result[2].trim().substr(7) + '\n')
         stream.write('```\n\n')
       }
     } else {
-      stream.write('##### `' + stripParameterTypes(decl).trim() + '`\n')
+      decl = decl.replace(/}[\s\S]*$/g, '')
+
+      stream.write('##### [`' + stripParameterTypes(decl).trim() + '`]' + link)
 
       if (decl.includes('):') && !decl.includes('():'))
         printParameters(decl, comment.params)
@@ -143,7 +177,7 @@ function print(node: tsdoc.DocNode, inline = false) {
 }
 
 function formatConstraints(fn: string): [string, string] {
-  let regex = /(\w+) extends (.+?)(>\(|> =|, )/g
+  let regex = /(\w+) extends (.+?(?:<.+?>.*?)?)(>\(|> =|, )/g
   let result = null as RegExpExecArray
 
   let list = ''
@@ -178,8 +212,11 @@ function printParameters(fn: string, params: tsdoc.DocParamCollection) {
 
           paramPairs.push([paramName.substr(3), beforeAmpersand])
         } else {
-          const paramType = result[2].substring(result[2].indexOf(paramName + ': ') + paramName.length + 2)
-          const paramTypeEnd = paramType.indexOf(';')
+          let paramType = result[2].substring(result[2].indexOf(paramName + ': ') + paramName.length + 2)
+          let paramTypeEnd = paramType.indexOf(';')
+
+          if (paramTypeEnd === -1)
+            paramTypeEnd = paramType.length - 2
 
           paramPairs.push([paramName, paramType.substring(0, paramTypeEnd)])
         }
@@ -203,4 +240,17 @@ function printParameters(fn: string, params: tsdoc.DocParamCollection) {
   }
 
   stream.write('\n')
+}
+
+
+function countLines(s: string) {
+  let lines = 0
+  let indexOfNewline = s.indexOf('\n')
+
+  while (indexOfNewline != -1) {
+    lines++
+    indexOfNewline = s.indexOf('\n', indexOfNewline + 1)
+  }
+
+  return lines
 }
