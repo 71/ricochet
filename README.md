@@ -20,7 +20,7 @@ Furthermore, since [RxJS](https://github.com/ReactiveX/rxjs) and other reactive 
 proposal, it is possible to use them with Ricochet immediately, without wrappers of any sort.
 
 Ricochet does not optimize its operations by default, but [makes it extremely easy to add
-features such as memoization, update batching and efficient list rendering](#Optimization).
+features such as memoization, update batching and efficient list rendering](#performances).
 
 
 ## Getting started
@@ -95,7 +95,7 @@ Ricochet allows its consumers to tune performances by giving them control of the
 rendering process for specific nodes.
 
 
-#### Exploiting observables
+### Exploiting observables
 
 [`Observable`](#interface-observable) streams are very powerful abstractions, and
 can be manipulated to optimize their performances.
@@ -108,7 +108,7 @@ for improving how streams are processed:
   [`debounce`](https://rxjs-dev.firebaseapp.com/api/operators/debounce).
 
 
-#### Customizing the rendering process
+### Customizing the rendering process
 
 As stated in the [overview](#overview), Ricochet can render many kinds of nodes, one of them being
 the [`CustomNode`](#interface-customnode). Nodes that implement this interface are given full
@@ -134,7 +134,7 @@ class PredicateNode implements CustomNode {
 ```
 
 
-#### Built-in optimizations
+### Built-in optimizations
 
 Ricochet provides several utilities designed to make things faster, which are listed below. Other
 utilities may be added later on, such as keyed lists, memoization, and batch rendering.
@@ -161,6 +161,19 @@ return (
   </div>
 )
 ```
+
+
+## Examples, unit tests and benchmarks
+
+[Jest](https://jestjs.io) unit tests are available in the [src](./src) directory,
+and [benchmarks](https://github.com/krausest/js-framework-benchmark) will be added
+shortly.
+
+**Notice**: Due to Jest (or rather [jsdom](https://github.com/jsdom/jsdom))
+not supporting Web Components and behaving differently from the browser,
+tests currently fail if ran via Jest. While waiting for these bugs to be fixed,
+the [`examples`](./examples) page currently runs all tests in the browser,
+ensuring that Ricochet keeps working as intended.
 
 
 # API
