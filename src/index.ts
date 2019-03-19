@@ -34,7 +34,7 @@ export interface Subscription {
 /**
  * Defines a value whose changes can be subscribed to.
  */
-export interface Subscribable<T> {
+export interface Subscribable<T> extends Observable<T> {
   /**
    * Subscribes to changes to the value.
    */
@@ -47,6 +47,11 @@ export interface Subscribable<T> {
 export interface Observable<T> {
   [ObservableSymbol](): Subscribable<T>
 }
+
+/**
+ * Defines a value that may be `Observable`.
+ */
+export type MaybeObservable<T> = Observable<T> | T
 
 
 // ==============================================================================================
@@ -84,7 +89,7 @@ declare global {
         style   ?: Partial<CSSStyleDeclaration>
       } & {
         [attr in Exclude<keyof HTMLElementTagNameMap[key], 'style' | 'children'>]?:
-          HTMLElementTagNameMap[key][attr] | Observable<HTMLElementTagNameMap[key][attr]>
+          MaybeObservable<HTMLElementTagNameMap[key][attr]>
       }
     }
   }
@@ -119,6 +124,10 @@ export interface RenderFunction {
 export interface CustomNode {
   /**
    * Renders the node in the DOM, as a child of the given parent.
+   *
+   * In Ricochet, nodes must be rendered between other nodes. Since a single `CustomNode`
+   * may be rendered as several DOM nodes, these DOM nodes should be inserted **before**
+   * `next`, and `previous.value` must be set to the **first** node that was inserted.
    */
   render(parent: Element, previous: { value: Node }, next: { value: Node }, r: RenderFunction): void
 }

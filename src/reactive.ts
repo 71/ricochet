@@ -5,7 +5,7 @@ import { makeObserve } from './internal'
 /**
  * Defines a reactive value that can be updated.
  */
-export interface Subject<T> extends Observable<T>, Subscribable<T> {
+export interface Subject<T> extends Subscribable<T> {
   /** Returns the underlying value. */
   readonly value: T
 
@@ -134,7 +134,7 @@ export function subject<T>(initialValue: T): ExtendedSubject<T> {
  * This function should be used when an observable stream
  * is expected somewhere, but a single constant value can be provided.
  */
-export function constant<T>(value: T): Observable<T> {
+export function constant<T>(value: T): Subscribable<T> {
   const observable: Observable<T> & Subscribable<T> = {
     [ObservableSymbol]: () => observable,
 
@@ -166,38 +166,43 @@ export function constant<T>(value: T): Observable<T> {
  */
 export function compute<T>(
   computation: ($: <U>(observable: Observable<U>, defaultValue?: U) => U) => T
-) {
-  const dependencies = new Map<Observable<any>, any>()
+): Subscribable<T> {
+  const dependencies = new Map<Subscribable<any>, any>()
   const subscriptions = new Set<Subscription>()
 
   const initialValue = computation(function (dependency, defaultValue) {
-    if (dependencies.has(dependency))
-      return dependencies.get(dependency)
+    const obs = dependency[ObservableSymbol] && dependency[ObservableSymbol]()
 
-    const subscription = dependency[ObservableSymbol]().subscribe({
+    if (obs === undefined)
+      return dependency
+
+    if (dependencies.has(obs))
+      return dependencies.get(obs)
+
+    const subscription = obs.subscribe({
       next: v => {
-        if (v === dependencies.get(dependency))
+        if (v === dependencies.get(obs))
           return
 
-        dependencies.set(dependency, v)
+        dependencies.set(obs, v)
 
         if (value !== undefined)
-          value.next(computation(dependencies.get.bind(dependencies)))
+          value.next(computation(dep => dependencies.get(dep[ObservableSymbol]())))
       },
       complete: () => {
         subscriptions.delete(subscription)
       },
     })
 
-    if (dependencies.has(dependency))
-      return dependencies.get(dependency)
+    if (dependencies.has(obs))
+      return dependencies.get(obs)
 
     // The dependency was NOT registered in the subscription call,
     // which is unexpected (unless a default value was provided).
     if (arguments.length === 1)
       throw new Error('The given observable stream did not provide a value in time for the computation.')
 
-    dependencies.set(dependency, defaultValue)
+    dependencies.set(obs, defaultValue)
     return defaultValue
   })
 
@@ -210,7 +215,7 @@ export function compute<T>(
   // We return a wrapper around the subject to:
   // - Make sure the value cannot be updated by someone else.
   // - Unsubscribe from all dependencies.
-  const observable: Observable<T> & Subscribable<T> = {
+  const observable = {
     [ObservableSymbol]: () => observable,
 
     subscribe: (observer: Observer<T>) => {
@@ -240,23 +245,28 @@ export function combine<O extends Observable<any>[]>(
   const observers = new Set<Observer<any>>()
   const observe = makeObserve(observers)
 
-  const values = []
+  const values = new Array<any>(observables.length)
 
   for (let i = 0; i < observables.length; i++) {
     const j = i
 
-    values.push(undefined)
+    const obs = observables[i][ObservableSymbol]
 
-    observables[i][ObservableSymbol]().subscribe(v => {
-      values[j] = v
-      observers.forEach(observer => (typeof observer === 'function' ? observer : observer.next)(values))
-    })
+    if (obs === undefined) {
+      // Not an observable, we simply add it to the array and move along
+      values[i] = observables[i]
+    } else {
+      obs().subscribe(v => {
+        values[j] = v
+        observers.forEach(observer => (typeof observer === 'function' ? observer : observer.next)(values))
+      })
+    }
   }
 
   const observable = {
-    subscribe: observe,
+    [ObservableSymbol]: () => observable,
 
-    [ObservableSymbol]: () => observable
+    subscribe: observe,
   }
 
   return observable
