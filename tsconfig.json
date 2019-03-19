@@ -10,11 +10,13 @@
     "jsx": "react",
     "jsxFactory": "h",
     "types": [
+      "node",
       "jest"
     ]
   },
   "include": [
-    "src/*.ts"
+    "src/*.ts",
+    "write-docs.ts"
   ],
   "exclude": [
     "index.d.ts"
