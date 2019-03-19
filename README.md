@@ -6,23 +6,23 @@ A small and unopinionated web framework meant to be simple, fast and lightweight
 
 ## Overview
 
-Ricochet has similar goals to [Surplus](https://github.com/adamhaile/surplus), but it
-achieves them differently. Ricochet's main feature is to render `NestedNode`s into
-the DOM efficiently, where a `NestedNode` is defined as follows:
+Ricochet has similar goals to [Surplus](https://github.com/adamhaile/surplus), but
+achieves them differently. Ricochet's main feature is to render [`NestedNode`](#type-nestednode)s into
+the DOM efficiently, where a [`NestedNode`](#type-nestednode) is defined as follows:
 
 ```typescript
 type NestedNode = string | Element | Observable<NestedNode> | NestedNode[]
 ```
 
-Therefore, the only thing that Ricochet needs to work is an observable stream,
-as defined by this [ECMAScript Observable proposal](https://github.com/tc39/proposal-observable#api).  
-Since [RxJS](https://github.com/ReactiveX/rxjs) and other libraries already implement this
-proposal, it is possible to immediately plug Ricochet with them.
+Therefore, the only thing that Ricochet needs to work is an [observable](#interface-observable) stream,
+as defined by this [ECMAScript Observable proposal](https://github.com/tc39/proposal-observable#api).
+Furthermore, since [RxJS](https://github.com/ReactiveX/rxjs) and other reactive libraries already implement this
+proposal, it is possible to use them with Ricochet immediately, without wrappers of any sort.
 
-Furthermore, Ricochet does not batch operations by default, and instead
-expects the user to handle this themselves. Thanks to the nature of observable streams, though,
-this can be easily achieved using [Schedulers](https://rxjs-dev.firebaseapp.com/guide/scheduler) in RxJS,
-for instance.
+Ricochet does not optimize its operations by default, but makes it extremely easy to add
+features such as memoization, update batching and efficient list rendering, by:
+2. And by providing ways for consumers to hand-optimize the rendering process of a specific node (see
+   [Optimization](#Optimization) for an example).
 
 
 ## Getting started
@@ -93,11 +93,55 @@ and changes to the DOM should be as rare as if a diffing algorithm had been used
 
 **However**, in some cases a simple change to a reactive stream may
 impact large parts of the DOM, which will lead to a slower redraw. For these cases,
-a few performances may be improved by caching nodes, by customizing renders, by batching
-changes, or by using specialized tools.
+Ricochet allows its consumers to tune performances by giving them control of the
+rendering process for specific nodes.
 
 
-#### `observableArray`
+#### Exploiting observables
+
+[`Observable`](#interface-observable) streams are very powerful abstractions, and
+can be manipulated to optimize their performances.
+
+For instance, [RxJS](https://github.com/ReactiveX/rxjs) provides the following features
+for improving how streams are processed:
+- [Schedulers](https://rxjs-dev.firebaseapp.com/guide/scheduler), which can be used to
+  batch stream updates together, or perform them at the right time.
+- Operators such as [`throttle`](https://rxjs-dev.firebaseapp.com/api/operators/throttle) and
+  [`debounce`](https://rxjs-dev.firebaseapp.com/api/operators/debounce).
+
+
+#### Customizing the rendering process
+
+As stated in the [overview](#overview), Ricochet can render many kinds of nodes, one of them being
+the [`CustomNode`](#interface-customnode). Nodes that implement this interface are given full
+control over how they and their children are rendered, making operations such as batch processing and
+node caching extremely easy to implement.
+
+For instance, here is how you would implement a node that only updates if a condition is respected:
+
+```typescript
+class PredicateNode implements CustomNode {
+  constructor(
+    readonly node: NestedNode,
+    readonly predicate: (node: NestedNode) => boolean
+  ) {}
+
+  render(parent: Element, prev: { value: Node }, next: { value: Node }, r: RenderFunction) {
+    if (!this.predicate(this.node))
+      return
+
+    r(this.node, prev, next)
+  }
+}
+```
+
+
+#### Built-in optimizations
+
+Ricochet provides several utilities designed to make things faster, which are listed below. Other
+utilities may be added later on, such as keyed lists, memoization, and batch rendering.
+
+##### Efficient list rendering
 
 The [`ricochet/array`](#ricochetarray) module provides the
 [`observableArray<T>`](#function-observablearray) function, which takes an array
@@ -106,7 +150,7 @@ array provides the same interface as a regular array, but is able to efficiently
 map changes to its underlying data to the DOM by implementing [`CustomNode`](#interface-customnode).
 
 ```tsx
-const numbers = observableArray()
+const numbers = observableArray<number>()
 
 return (
   <div>
@@ -119,6 +163,7 @@ return (
   </div>
 )
 ```
+
 
 # API
 
