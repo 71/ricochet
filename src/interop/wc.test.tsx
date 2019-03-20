@@ -84,10 +84,10 @@ describe('Web Components interop', () => {
     const root = el.shadowRoot.firstElementChild as JSX.Element
 
     expect(root).not.toBe(null)
-    expect(root.subscriptions.length).toBeGreaterThan(0)
+    expect(root.subscriptions.size).toBeGreaterThan(0)
 
     el.remove()
 
-    expect(root.subscriptions.length).toBe(0)
+    expect(root.subscriptions.size).toBe(0)
   })
 })

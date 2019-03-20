@@ -35,7 +35,7 @@ export function makeCustomElement<P extends object, E extends JSX.Element>(
     }
 
     disconnectedCallback() {
-      destroy(this.element)
+      destroy(this.element, false)
     }
   }
 }

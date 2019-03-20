@@ -1,6 +1,7 @@
 import UntypedObservableSymbol from 'symbol-observable'
 
 import { destroy, destroyRange } from './internal'
+import { Subject }               from './reactive'
 
 
 // ==============================================================================================
@@ -84,6 +85,7 @@ declare global {
 
     type IntrinsicAttributes = {
       children?: NestedNode
+      connect ?: Connectable<any> | Connectable<any>[]
     }
 
     type IntrinsicElements = {
@@ -134,6 +136,13 @@ export interface CustomNode {
    */
   render(parent: Element, previous: { value: Node }, next: { value: Node }, r: RenderFunction): void
 }
+
+/**
+ * Defines an element that can be connected to a node.
+ */
+export type Connectable<T extends Node> =
+    ((element: T, attachSubscriptions: (...subscriptions: Subscription[]) => void) => void)
+  | { connect: (element: T, attachSubscriptions: (...subscriptions: Subscription[]) => void) => void }
 
 
 // See: https://stackoverflow.com/a/52473108
@@ -286,6 +295,19 @@ export function h(
     }
 
     Object.assign(element, otherProperties)
+
+    if (props && props.connect) {
+      const addSubscription = (function (this: Set<Subscription>, ...subs: Subscription[]) {
+        for (const subscription of subs)
+          subscriptions.add(subscription)
+      }).bind(subscriptions)
+
+      if (Array.isArray(props.connect))
+        for (const c of props.connect)
+          (typeof c === 'function' ? c : c.connect)(element, addSubscription)
+      else
+        (typeof props.connect === 'function' ? props.connect : props.connect.connect)(element, addSubscription)
+    }
 
     if (callback != null)
       callback(element)
@@ -477,4 +499,84 @@ function render(parent: Element, node: NestedNode, subscriptions: Set<Subscripti
   }
 
   r(node, { value: undefined }, { value: undefined }, true)
+}
+
+
+// ==============================================================================================
+// ==== CONNECTORS ==============================================================================
+// ==============================================================================================
+
+/**
+ * Returns a `Connectable<T>` that can be used to register to events on one
+ * or more elements.
+ */
+export function eventListener<N extends Node, E extends Event>(
+  type : string,
+  opts?: boolean | AddEventListenerOptions,
+): Connectable<N> & Subscribable<E> {
+  const observers = new Set<Observer<E>>()
+  const elements = new Set<N>()
+
+  const eventListener = (e: E) => {
+    observers.forEach(x => (typeof x === 'function' ? x : x.next)(e))
+  }
+
+  const observable: Connectable<N> & Subscribable<E> = {
+    [ObservableSymbol]: () => observable,
+    subscribe: (observer: Observer<E>) => {
+      if (observers.size === 0) {
+        for (const element of elements)
+          element.addEventListener(type, eventListener, opts)
+      }
+
+      observers.add(observer)
+
+      return {
+        unsubscribe: () => {
+          observers.delete(observer)
+
+          if (observers.delete(observer) && observers.size === 0) {
+            for (const element of elements)
+              element.removeEventListener(type, eventListener, opts)
+          }
+        }
+      }
+    },
+    connect: (element, addSubscriptions) => {
+      elements.add(element)
+      element.addEventListener(type, eventListener, opts)
+
+      addSubscriptions({
+        unsubscribe: () => {
+          elements.delete(element)
+          element.removeEventListener(type, eventListener, opts)
+        }
+      })
+    }
+  }
+
+  return observable
+}
+
+/**
+ * Returns a `Connectable<T>` that can be used to bind an input's `value` both ways.
+ */
+export function valueBinder<T extends string | number | boolean>(
+  input: Subject<T>,
+): Connectable<HTMLInputElement> {
+  return {
+    connect(element, addSubscriptions) {
+      const eventListener = function (this: HTMLInputElement, _: Event) {
+        input.next(this.value as any)
+      }
+
+      element.addEventListener('change', eventListener)
+
+      addSubscriptions(input[ObservableSymbol]().subscribe(x => element.value = x as any), {
+        unsubscribe: () => {
+          element.removeEventListener('change', eventListener)
+        }
+      })
+    }
+  }
 }

@@ -23,17 +23,20 @@ export function makeObserve<T>(observers: Set<T>): (observer: T) => { unsubscrib
  *
  * Not intended for direct use.
  */
-export function destroy(node?: Node & Partial<JSX.Element>) {
+export function destroy(node?: Node & Partial<JSX.Element>, remove = true) {
   if (node === undefined)
     node = this
 
-  node.remove()
+  if (remove)
+    node.remove()
 
   if (node.subscriptions == null)
     return
 
-  node.subscriptions.forEach(x => x.unsubscribe())
+  const subscriptions = [...node.subscriptions]
+
   node.subscriptions.clear()
+  subscriptions.forEach(x => x.unsubscribe())
 
   if (node.ondestroy != null)
     node.ondestroy()

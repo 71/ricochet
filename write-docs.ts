@@ -84,7 +84,7 @@ for (const file in files) {
 
     startLine += countLines(doc.substr(0, startOfDoc))
 
-    const link = `(${file}#L${startLine}-${currentLine - 1})\n`
+    const link = `(${file}#L${startLine}-L${currentLine - 1})\n`
     const topLevel = decl.startsWith('export ')
 
     if (topLevel)

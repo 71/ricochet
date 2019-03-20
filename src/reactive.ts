@@ -162,7 +162,8 @@ export function constant<T>(value: T): Subscribable<T> {
  * Returns an observable that will be updated when any of the given observables
  * changes.
  *
- * See [S.js](https://github.com/adamhaile/S) for the inspiration for this function.
+ * See [S.js](https://github.com/adamhaile/S) for the inspiration for this function. Please note
+ * that unlike S, changes are propagated immediately, without waiting for the next time unit.
  *
  * ##### Example
  *
@@ -210,6 +211,8 @@ export function compute<T>(
         subscriptions.delete(subscription)
       },
     })
+
+    subscriptions.add(subscription)
 
     if (dependencies.has(obs))
       return dependencies.get(obs)
