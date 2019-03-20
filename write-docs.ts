@@ -101,6 +101,7 @@ for (const file in files) {
             .replace(/^(interface.+?)\s+{.*$/, '$1')
             .replace(/^(function.+?(<.+?>.*?)?\(.*?\).*?)\s+{.*$/g, '$1')
             .replace(/([^{\s])}/g, '$1 }')
+            .replace('ObservableSymbol', 'Observable.symbol')
 
     const ctx = parser.parseString(doc.substr(doc.lastIndexOf('/**')))
     const comment = ctx.docComment

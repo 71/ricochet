@@ -119,9 +119,14 @@ export interface ObservableNode extends Observable<NestedNode> {}
 export interface NodeArray extends Array<NestedNode> {}
 
 /**
+ * A mutable reference to a `Node`.
+ */
+export type NodeRef = [Node]
+
+/**
  * The function used to render a `NestedNode`.
  */
-export type RenderFunction = (value: NestedNode, previous: { value: Node }, next: { value: Node }) => void
+export type RenderFunction = (value: NestedNode, previous: NodeRef, next: NodeRef) => void
 
 /**
  * A custom-rendered node.
@@ -132,9 +137,9 @@ export interface CustomNode {
    *
    * In Ricochet, nodes must be rendered between other nodes. Since a single `CustomNode`
    * may be rendered as several DOM nodes, these DOM nodes should be inserted **before**
-   * `next`, and `previous.value` must be set to the **first** node that was inserted.
+   * `next`, and `previous` must be set to the **first** node that was inserted.
    */
-  render(parent: Element, previous: { value: Node }, next: { value: Node }, r: RenderFunction): void
+  render(parent: Element, previous: NodeRef, next: NodeRef, r: RenderFunction): void
 }
 
 /**
@@ -249,10 +254,10 @@ export function h(
           }
 
           const value = attrs[attr]
-          const $ = value != null ? value[ObservableSymbol] : undefined
+          const $ = value != null && value[ObservableSymbol] !== undefined ? value[ObservableSymbol]() : undefined
 
           if ($ !== undefined) {
-            subscriptions.add($().subscribe(setValue))
+            subscriptions.add($.subscribe(setValue))
           } else {
             setValue(value)
           }
@@ -399,9 +404,8 @@ function render(parent: Element, node: NestedNode, subscriptions: Set<Subscripti
   // **must** be updated when a new nodes are added somewhere. It represents
   // the current node.
 
-  function r(node: NestedNode, prev: { value: Node }, next: { value: Node }, observe = true): void {
-    // @ts-ignore
-    if (node == null || node === false)
+  function r(node: NestedNode, prev: NodeRef, next: NodeRef, observe = true): void {
+    if (node == null || node as any === false)
       return
 
     const obs: Subscribable<NestedNode> =
@@ -424,13 +428,13 @@ function render(parent: Element, node: NestedNode, subscriptions: Set<Subscripti
           // The inserted children are the ones inserted after the child insertion point,
           // but before the insertion point given to us.
           if (hadValue)
-            destroyRange(prev.value, next.value)
+            destroyRange(prev[0], next[0])
 
           r(newValue, prev, next, false)
-          hadValue = prev.value !== undefined
+          hadValue = prev[0] !== undefined
 
-          if (prev.value === undefined)
-            prev.value = next.value
+          if (prev[0] === undefined)
+            prev[0] = next[0]
         }
 
         let addSubscription = true
@@ -476,11 +480,11 @@ function render(parent: Element, node: NestedNode, subscriptions: Set<Subscripti
         // Last:
         // r(node[^1], childNext, next)
 
-        const childPrev = { value: undefined }
+        const childPrev = [undefined] as NodeRef
 
         r(node[i], childPrev, next)
 
-        if (childPrev.value !== undefined)
+        if (childPrev[0] !== undefined)
           // A node was rendered, so we can update our pointer so that
           // the next node will be inserted before the one we just inserted.
           next = childPrev
@@ -495,16 +499,73 @@ function render(parent: Element, node: NestedNode, subscriptions: Set<Subscripti
     // instead we'll just pass the element itself to the previous sibling, since it is
     // guaranteed the current element won't move.
 
-    prev.value = parent.insertBefore(node instanceof Node ? node : new Text(node.toString()), next.value)
+    prev[0] = parent.insertBefore(node instanceof Node ? node : new Text(node.toString()), next[0])
   }
 
-  r(node, { value: undefined }, { value: undefined }, true)
+  r(node, [undefined], [undefined], true)
 }
 
 
 // ==============================================================================================
 // ==== CONNECTORS ==============================================================================
 // ==============================================================================================
+
+class EventListener<N extends Node, E extends Event> implements Subscribable<E> {
+  private readonly elements = new Set<N>()
+  private readonly observers = new Set<Observer<E>>()
+
+  private readonly eventListener: (this: E, _: Event) => void
+
+  constructor(readonly type: string, readonly opts: boolean | AddEventListenerOptions) {
+    const observers = this.observers
+
+    this.eventListener = function(e) {
+      for (const observer of observers)
+        // @ts-ignore
+        (typeof observer === 'function' ? observer : observer.next)(e.value)
+    }
+
+    this[ObservableSymbol] = this[ObservableSymbol].bind(this)
+    this.subscribe = this.subscribe.bind(this)
+    this.connect = this.connect.bind(this)
+  }
+
+  [ObservableSymbol]() {
+    return this
+  }
+
+  subscribe(observer: Observer<E>) {
+    if (this.observers.size === 0) {
+      for (const element of this.elements)
+        element.addEventListener(this.type, this.eventListener, this.opts)
+    }
+
+    this.observers.add(observer)
+
+    return {
+      unsubscribe: () => {
+        if (this.observers.delete(observer) && this.observers.size === 0) {
+          for (const element of this.elements)
+            element.removeEventListener(this.type, this.eventListener, this.opts)
+        }
+      }
+    }
+  }
+
+  connect(element: N, addSubscriptions: (...s: Subscription[]) => void) {
+    this.elements.add(element)
+
+    element.addEventListener(this.type, this.eventListener, this.opts)
+
+    addSubscriptions({
+      unsubscribe: () => {
+        this.elements.delete(element)
+
+        element.removeEventListener(this.type, this.eventListener, this.opts)
+      }
+    })
+  }
+}
 
 /**
  * Returns a `Connectable<T>` that can be used to register to events on one
@@ -514,48 +575,25 @@ export function eventListener<N extends Node, E extends Event>(
   type : string,
   opts?: boolean | AddEventListenerOptions,
 ): Connectable<N> & Subscribable<E> {
-  const observers = new Set<Observer<E>>()
-  const elements = new Set<N>()
+  return new EventListener(type, opts)
+}
 
-  const eventListener = (e: E) => {
-    observers.forEach(x => (typeof x === 'function' ? x : x.next)(e))
+
+class ValueBinder<T, E extends HTMLInputElement | HTMLTextAreaElement> {
+  private readonly eventListener: (this: E, _: Event) => void
+
+  constructor(readonly input: Subject<T>) {
+    this.eventListener = function () { input.next(this.value as any) }
+    this.connect = this.connect.bind(this)
   }
 
-  const observable: Connectable<N> & Subscribable<E> = {
-    [ObservableSymbol]: () => observable,
-    subscribe: (observer: Observer<E>) => {
-      if (observers.size === 0) {
-        for (const element of elements)
-          element.addEventListener(type, eventListener, opts)
-      }
+  connect(element: E, addSubscriptions: (...s: Subscription[]) => void) {
+    element.addEventListener('change', this.eventListener)
 
-      observers.add(observer)
-
-      return {
-        unsubscribe: () => {
-          observers.delete(observer)
-
-          if (observers.delete(observer) && observers.size === 0) {
-            for (const element of elements)
-              element.removeEventListener(type, eventListener, opts)
-          }
-        }
-      }
-    },
-    connect: (element, addSubscriptions) => {
-      elements.add(element)
-      element.addEventListener(type, eventListener, opts)
-
-      addSubscriptions({
-        unsubscribe: () => {
-          elements.delete(element)
-          element.removeEventListener(type, eventListener, opts)
-        }
-      })
-    }
+    addSubscriptions(this.input[ObservableSymbol]().subscribe(x => element.value = x as any), {
+      unsubscribe: () => element.removeEventListener('change', this.eventListener)
+    })
   }
-
-  return observable
 }
 
 /**
@@ -563,20 +601,6 @@ export function eventListener<N extends Node, E extends Event>(
  */
 export function valueBinder<T extends string | number | boolean>(
   input: Subject<T>,
-): Connectable<HTMLInputElement> {
-  return {
-    connect(element, addSubscriptions) {
-      const eventListener = function (this: HTMLInputElement, _: Event) {
-        input.next(this.value as any)
-      }
-
-      element.addEventListener('change', eventListener)
-
-      addSubscriptions(input[ObservableSymbol]().subscribe(x => element.value = x as any), {
-        unsubscribe: () => {
-          element.removeEventListener('change', eventListener)
-        }
-      })
-    }
-  }
+): Connectable<HTMLInputElement | HTMLTextAreaElement> {
+  return new ValueBinder(input)
 }

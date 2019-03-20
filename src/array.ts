@@ -1,4 +1,4 @@
-import { RenderFunction, Subscription } from '.'
+import { RenderFunction, Subscription, NodeRef, NestedNode } from '.'
 import { destroyRange, makeObserve }    from './internal'
 
 
@@ -33,6 +33,11 @@ export interface ObservableArray<T> extends Array<T> {
    * according to a `map` function.
    */
   map<R>(f: (value: T, index: number, array: Array<T>) => R, thisArg?: any): ObservableArray<R>
+
+  /**
+   * Swaps the values at the two given indices in the DOM.
+   */
+  swap(a: number, b: number): T extends NestedNode ? void : never
 }
 
 /**
@@ -100,13 +105,13 @@ export function observableArray<T>(...array: T[]): ObservableArray<T> {
     return subscription
   }
 
-  const render = (parent: Element, prev: { value: Node }, next: { value: Node }, r: RenderFunction) => {
+  const render = (_: Element, prev: NodeRef, next: NodeRef, r: RenderFunction) => {
     const firstPrev = prev
     const lastNext = next
 
     // Stores all rendered nodes. The first node that was rendered at index [i]
     // is in renderedNodes[i].
-    const renderedNodes: { value: Node }[] = []
+    const renderedNodes: NodeRef[] = []
 
     const splice = (start: number, deleteCount?: number, ...items: any[]) => {
       if (start < 0)
@@ -120,17 +125,17 @@ export function observableArray<T>(...array: T[]): ObservableArray<T> {
 
       // Delete some items
       if (deleteCount > 0) {
-        destroyRange(prev.value, next.value)
+        destroyRange(prev[0], next[0])
 
         if (start > 0)
           renderedNodes[start] = next
       }
 
       // And create some more
-      const generated = new Array<{ value: Node }>(items.length)
+      const generated = new Array<NodeRef>(items.length)
 
       for (let i = items.length - 1; i >= 0; i--) {
-        const newPrev = { value: undefined }
+        const newPrev = [undefined] as NodeRef
 
         r(items[i], newPrev, next)
 
@@ -151,7 +156,7 @@ export function observableArray<T>(...array: T[]): ObservableArray<T> {
       set: (i, v) => {
         if (renderedNodes[i] === undefined) {
           // Pushing a new node
-          const prev = i === 0 ? firstPrev : { value: undefined }
+          const prev = i === 0 ? firstPrev : [undefined] as NodeRef
 
           renderedNodes[i] = prev
 
@@ -164,7 +169,7 @@ export function observableArray<T>(...array: T[]): ObservableArray<T> {
         const prev = renderedNodes[i]
         const next = renderedNodes[i + 1] || lastNext
 
-        destroyRange(prev.value, next.value)
+        destroyRange(prev[0], next[0])
 
         if (v === undefined)
           renderedNodes[i] = next
@@ -173,16 +178,15 @@ export function observableArray<T>(...array: T[]): ObservableArray<T> {
 
         // In some cases, nodes may be duplicated in the array (for instance,
         // during a `reverse` operation).
-        // Therefore, we always have to go through the array to fix relationships
-        // between all nodes.
-        for (let j = 0; j < renderedNodes.length; j++) {
-          if (j === i || renderedNodes[j].value !== prev.value)
-            continue
+        // In such cases, startBatchOperation should be used, but we make sure
+        // the user doesn't make mistakes in debug builds anyway
+        if (process.env.NODE_ENV !== 'production') {
+          for (let j = 0; j < renderedNodes.length; j++) {
+            if (j === i || renderedNodes[j][0] !== prev[0])
+              continue
 
-          if (renderedNodes[j + 1] != undefined)
-            renderedNodes[j].value = renderedNodes[j + 1].value
-          else
-            renderedNodes[j].value = lastNext.value
+            console.error('Error: duplicate item found in render DOM array.')
+          }
         }
       },
 
@@ -192,18 +196,18 @@ export function observableArray<T>(...array: T[]): ObservableArray<T> {
         const prev = renderedNodes[renderedNodes.length - 2] || firstPrev
         const next = renderedNodes.pop()
 
-        prev.value = next.value
+        prev[0] = next[0]
 
-        destroyRange(next.value, undefined)
+        destroyRange(next[0], undefined)
       },
 
       shift: () => {
         const prev = firstPrev
         const next = renderedNodes.shift()
 
-        destroyRange(prev.value, next.value)
+        destroyRange(prev[0], next[0])
 
-        prev.value = next.value
+        prev[0] = next[0]
       },
 
       push: (...items: any[]) => {
@@ -214,38 +218,112 @@ export function observableArray<T>(...array: T[]): ObservableArray<T> {
         splice(0, 0, ...items)
       },
 
+      reverse: () => {
+        if (renderedNodes.length < 2)
+          return
+
+        // Reverse nodes in array
+        renderedNodes.reverse()
+
+        // Now insert all groups of nodes to the end, in the (now reverse) order of the array
+        //
+        // For instance, 12 34 56 reversed is 56 34 12.
+        //
+        // Start with array [ [1, 2], [3, 4], [5, 6] ]; (in renderedNodes)
+        //  then reverse it [ [5, 6], [3, 4], [1, 2] ]. (in renderedNodes)
+        //
+        // Now in the reverse order, insert groups at the end:
+        // [ [5, 6] ] -> [ [5, 6], [3, 4] ] -> [ [5, 6], [3, 4], [1, 2] ] (in DOM)
+        for (let i = 0; i < renderedNodes.length - 1; i++) {
+          let a = renderedNodes[i][0]
+          let b = renderedNodes[i + 1][0]
+
+          while (a != b) {
+            const n = a
+
+            a = a.previousSibling
+            n.parentElement.insertBefore(n, undefined)
+          }
+        }
+
+        let last = renderedNodes[renderedNodes.length - 1][0]
+
+        while (last != null) {
+          const n = last
+
+          last = last.previousSibling
+          n.parentElement.insertBefore(n, undefined)
+        }
+      },
+
       find: () => {},
       findIndex: () => {},
-      forEach: () => {}
+      forEach: () => {},
+
+      // @ts-ignore
+      swap: (ai: number, bi: number) => {
+        if (ai === bi)
+          return
+
+        const a = renderedNodes[ai]
+        const b = renderedNodes[bi]
+
+        // Insert 'b' before 'a', and 'a' before 'b''s next sibling
+        let ae = a[0]
+        let be = b[0]
+
+        const anext = (renderedNodes[ai + 1] || lastNext)[0]
+        const bnext = (renderedNodes[bi + 1] || lastNext)[0]
+
+        while (ae != anext) {
+          const n = ae
+
+          ae = ae.nextSibling
+          n.parentElement.insertBefore(n, bnext)
+        }
+
+        while (be != a[0]) {
+          const n = be
+
+          be = be.nextSibling
+          n.parentElement.insertBefore(n, anext)
+        }
+
+        // Update indices
+        const tmp = a[0]
+
+        a[0] = b[0]
+        b[0] = tmp
+      },
     }, true)
   }
 
-  const proxy = new Proxy(Object.assign({
-      __traps: { observe, map, render },
-      __observers: observers,
-      __values: array,
+  const proxy = new Proxy({
+    __observers: observers,
+    __values   : array,
 
-      observe,
-      map,
-
-      [observableArraySymbol]: observableArraySymbol,
-    }, array), {
-    get: ({ __traps: traps, __observers: observers, __values: values }, p) => {
-      if (p === 'observe')             return observe
-      if (p === 'map')                 return map
-      if (p === 'render')              return render
-      if (p === observableArraySymbol) return observableArraySymbol
+    observe,
+    map,
+    render,
+  }, {
+    get: (t, p) => {
+      const { __observers: observers, __values: values } = t
 
       if (typeof p == 'number')
         return values[p]
 
-      if (traps[p] !== undefined)
-        return traps[p]
+      const trap = t[p]
+
+      if (trap !== undefined)
+        return trap
 
       const prop = values[p]
 
       if (typeof prop === 'function') {
-        return traps[p] = (...args) => {
+        // The 'value' is in fact an array prototype function, so we
+        // return a wrapper around it
+
+        return t[p] = function() {
           // Some observers may not define a direct implementation of the
           // function that was called. Therefore, we want to use the 'set' function
           // for all accesses, which is how arrays work at their lowest level.
@@ -257,11 +335,11 @@ export function observableArray<T>(...array: T[]): ObservableArray<T> {
             if (cb === undefined)
               fallbackObservers.push(observer)
             else
-              cb(...args)
+              cb(...arguments)
           }
 
           if (fallbackObservers.length === 0)
-            return prop.apply(values, args)
+            return prop.apply(values, arguments)
 
           const passthrough = new Proxy(values, {
             get: (t, p) => t[p],
@@ -277,7 +355,7 @@ export function observableArray<T>(...array: T[]): ObservableArray<T> {
             }
           })
 
-          return Array.prototype[p].apply(passthrough, args)
+          return Array.prototype[p].apply(passthrough, arguments)
         }
       }
 
@@ -293,7 +371,9 @@ export function observableArray<T>(...array: T[]): ObservableArray<T> {
           return false
 
         values[p] = value
-        observers.forEach(x => x.set(p as number, value))
+
+        for (const observer of observers)
+          observer.set(p, value)
 
         return true
       }
@@ -302,5 +382,5 @@ export function observableArray<T>(...array: T[]): ObservableArray<T> {
     },
   })
 
-  return proxy
+  return proxy as any
 }

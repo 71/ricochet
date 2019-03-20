@@ -24,6 +24,9 @@ export function makeObserve<T>(observers: Set<T>): (observer: T) => { unsubscrib
  * Not intended for direct use.
  */
 export function destroy(node?: Node & Partial<JSX.Element>, remove = true) {
+  if (node === null)
+    console.error('Bug detected: attempting to destory a null node.')
+
   if (node === undefined)
     node = this
 
@@ -46,7 +49,7 @@ export function destroy(node?: Node & Partial<JSX.Element>, remove = true) {
  * Destroys all the nodes in the range [prev, next[.
  */
 export function destroyRange(prevIncluded: Node, nextExcluded: Node): void {
-  if (prevIncluded == null)
+  if (prevIncluded == null || nextExcluded === prevIncluded)
     return
 
   if (nextExcluded == null) {

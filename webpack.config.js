@@ -1,7 +1,8 @@
 module.exports = {
   mode: 'production',
   entry: {
-    'index'   : './src/index.ts',
+    'index': './src/index.ts',
+
     'array'   : './src/array.ts',
     'async'   : './src/async.ts',
     'reactive': './src/reactive.ts',
