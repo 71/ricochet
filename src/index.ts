@@ -514,15 +514,14 @@ class EventListener<N extends Node, E extends Event> implements Subscribable<E> 
   private readonly elements = new Set<N>()
   private readonly observers = new Set<Observer<E>>()
 
-  private readonly eventListener: (this: E, _: Event) => void
+  private readonly eventListener: (this: N, _: E) => void
 
   constructor(readonly type: string, readonly opts: boolean | AddEventListenerOptions) {
     const observers = this.observers
 
     this.eventListener = function(e) {
       for (const observer of observers)
-        // @ts-ignore
-        (typeof observer === 'function' ? observer : observer.next)(e.value)
+        (typeof observer === 'function' ? observer : observer.next)(e)
     }
 
     this[ObservableSymbol] = this[ObservableSymbol].bind(this)

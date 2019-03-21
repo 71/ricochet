@@ -29,5 +29,8 @@ module.exports = {
       },
     ],
   },
+  externals: [
+    'rxjs'
+  ],
   devtool: 'source-map',
 }

@@ -51,6 +51,7 @@ export function isObservableArray<T>(array: any): array is ObservableArray<T> {
  * Returns an observable array.
  */
 export function observableArray<T>(...array: T[]): ObservableArray<T> {
+  // FIXME: Memory leaks (ignored subscriptions)
   const observers = new Set<ArrayObserver<T>>()
   const observeInternal = makeObserve(observers)
 
