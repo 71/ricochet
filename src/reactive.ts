@@ -162,7 +162,7 @@ export function constant<T>(value: T): Constant<T> {
  */
 export class ComputeObservable<T> implements Subscribable<T> {
   private readonly observers = new Set<Observer<any>>()
-  private readonly subscriptions = new Set<Subscription>()
+  private readonly subscriptions = [] as Subscription[]
 
   private value: T = undefined
 
@@ -176,7 +176,7 @@ export class ComputeObservable<T> implements Subscribable<T> {
 
   private subscribeToDependencies() {
     for (const dep of this.dependencies.keys()) {
-      this.subscriptions.add(dep.subscribe(v => {
+      this.subscriptions.push(dep.subscribe(v => {
         if (v === this.dependencies.get(dep))
           return
 
@@ -190,10 +190,10 @@ export class ComputeObservable<T> implements Subscribable<T> {
   }
 
   private unsubscribeFromDependencies() {
-    for (const subscription of this.subscriptions)
-      subscription.unsubscribe()
+    const subscriptions = this.subscriptions.splice(0)
 
-    this.subscriptions.clear()
+    for (let i = 0; i < subscriptions.length; i++)
+      subscriptions[i].unsubscribe()
   }
 
   [ObservableSymbol]() {
@@ -295,7 +295,7 @@ export type ObservableValueTypes<O> = {
  */
 export class CombineObservable<O extends any[]> implements Subscribable<ObservableValueTypes<O>> {
   private readonly observers = new Set<Observer<any>>()
-  private readonly subscriptions = new Set<Subscription>()
+  private readonly subscriptions = [] as Subscription[]
 
   private readonly values: ObservableValueTypes<O>
 
@@ -314,7 +314,7 @@ export class CombineObservable<O extends any[]> implements Subscribable<Observab
         // Not an observable, we simply add it to the array and move along
         this.values[j] = obs
       } else {
-        this.subscriptions.add(obs[ObservableSymbol]().subscribe(v => {
+        this.subscriptions.push(obs[ObservableSymbol]().subscribe(v => {
           this.values[j] = v
 
           for (const observer of this.observers)
@@ -325,10 +325,10 @@ export class CombineObservable<O extends any[]> implements Subscribable<Observab
   }
 
   private unsubscribeFromDependencies() {
-    for (const subscription of this.subscriptions)
-      subscription.unsubscribe()
+    const subscriptions = this.subscriptions.splice(0)
 
-    this.subscriptions.clear()
+    for (let i = 0; i < subscriptions.length; i++)
+      subscriptions[i].unsubscribe()
   }
 
   [ObservableSymbol]() {

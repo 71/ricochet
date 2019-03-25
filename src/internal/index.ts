@@ -37,10 +37,10 @@ export function destroy(node?: Node & Partial<JSX.Element>, remove = true) {
   if (node.subscriptions == null)
     return
 
-  const subscriptions = [...node.subscriptions]
+  const subscriptions = node.subscriptions.splice(0)
 
-  node.subscriptions.clear()
-  subscriptions.forEach(x => x.unsubscribe())
+  for (let i = 0; i < subscriptions.length; i++)
+    subscriptions[i].unsubscribe()
 
   node.dispatchEvent(new Event('destroy'))
 

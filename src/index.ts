@@ -76,7 +76,7 @@ declare global {
       addEventListener(type: 'destroy', listener: (this: Element, ev: Event) => any, options?: boolean | AddEventListenerOptions): void
       destroy(): void
 
-      readonly subscriptions: Set<Subscription>
+      readonly subscriptions: Subscription[]
     }
 
     type StyleDeclaration = {
@@ -210,11 +210,11 @@ export function h(
   let element: HTMLElement
   let callback: (el: HTMLElement) => void
 
-  const subscriptions = new Set<Subscription>()
+  const subscriptions = [] as Subscription[]
   const otherProperties = {
     subscriptions,
 
-    destroy: destroy.bind(element)
+    destroy: () => destroy(element) //destroy.bind(element)
   }
 
   try {
@@ -226,7 +226,7 @@ export function h(
 
       if (attrs != null) {
         for (const attr in attrs) {
-          let styleSubscriptions = null as Set<Subscription>
+          let styleSubscriptions = null as Subscription[]
           let addedStyleSubscriptions = false
 
           const value = attrs[attr]
@@ -243,8 +243,10 @@ export function h(
             } :
             attr === 'style' ? (value: any) => {
               if (styleSubscriptions != null) {
-                styleSubscriptions.forEach(x => x.unsubscribe())
-                styleSubscriptions.clear()
+                for (let i = 0; i < styleSubscriptions.length; i++)
+                  styleSubscriptions[i].unsubscribe()
+
+                styleSubscriptions.length = 0
               }
 
               if (typeof value !== 'object')
@@ -256,16 +258,16 @@ export function h(
 
                 if (obs) {
                   if (styleSubscriptions == null)
-                    styleSubscriptions = $ === undefined ? subscriptions : new Set<Subscription>()
+                    styleSubscriptions = $ === undefined ? subscriptions : [] as Subscription[]
 
-                  styleSubscriptions.add(obs.subscribe(v => el.style.setProperty(prop, v)))
+                  styleSubscriptions.push(obs.subscribe(v => el.style.setProperty(prop, v)))
                 } else {
                   el.style.setProperty(prop, v)
                 }
               }
 
               if (styleSubscriptions != null && !addedStyleSubscriptions) {
-                subscriptions.add({
+                subscriptions.push({
                   unsubscribe() {
                     styleSubscriptions.forEach(x => x.unsubscribe())
                   }
@@ -282,7 +284,7 @@ export function h(
             }
 
           if ($ !== undefined) {
-            subscriptions.add($.subscribe(setValue))
+            subscriptions.push($.subscribe(setValue))
           } else {
             setValue(value)
           }
@@ -317,7 +319,7 @@ export function h(
 
       const el = tag(props)
 
-      subscriptions.add({
+      subscriptions.push({
         unsubscribe() {
           el.destroy && el.destroy()
         }
@@ -329,9 +331,9 @@ export function h(
     Object.assign(element, otherProperties)
 
     if (props && props.connect) {
-      const addSubscription = (function (this: Set<Subscription>, ...subs: Subscription[]) {
+      const addSubscription = (function (this: Subscription[], ...subs: Subscription[]) {
         for (const subscription of subs)
-          subscriptions.add(subscription)
+          subscriptions.push(subscription)
       }).bind(subscriptions)
 
       if (Array.isArray(props.connect))
@@ -350,7 +352,7 @@ export function h(
   return element as any
 }
 
-const initSubscriptions = [] as Set<Subscription>[]
+const initSubscriptions = [] as Subscription[][]
 
 /**
  * Attaches the given subscriptions to the element that is currently being initialized.
@@ -360,7 +362,7 @@ export function attach(...subscriptions: Subscription[]): void {
     throw new Error('`attach` can only be called in a component initializer.')
 
   for (const sub of subscriptions)
-    initSubscriptions[initSubscriptions.length - 1].add(sub)
+    initSubscriptions[initSubscriptions.length - 1].push(sub)
 }
 
 
@@ -381,14 +383,16 @@ export function mount(node: NestedNode, el: Element): Subscription
 /** @ignore */
 export function mount(node: NestedNode, el?: Element) {
   if (el === undefined) {
-    const subscriptions = new Set<Subscription>()
+    const subscriptions = [] as Subscription[]
 
     render(el, node, subscriptions)
 
     return {
-      unsubscribe: () => {
-        subscriptions.forEach(x => x.unsubscribe())
-        subscriptions.clear()
+      unsubscribe() {
+        for (let i = 0; i < subscriptions.length; i++)
+          subscriptions[i].unsubscribe()
+
+        subscriptions.length = 0
       }
     }
   }
@@ -397,7 +401,7 @@ export function mount(node: NestedNode, el?: Element) {
 
   node[ObservableSymbol]().subscribe(x => {
     const parent = document.createElement('div')
-    const subscriptions = new Set<Subscription>()
+    const subscriptions = [] as Subscription[]
 
     render(parent, x, subscriptions)
 
@@ -409,8 +413,10 @@ export function mount(node: NestedNode, el?: Element) {
 
     rendered = parent.firstElementChild
 
-    subscriptions.forEach(x => x.unsubscribe())
-    subscriptions.clear()
+    for (let i = 0; i < subscriptions.length; i++)
+      subscriptions[i].unsubscribe()
+
+    subscriptions.length = 0
   })
 
   if (rendered == null)
@@ -424,7 +430,7 @@ export function mount(node: NestedNode, el?: Element) {
  * Renders the given node and all of its nested nodes into the given parent,
  * and subscribes for future changes in order to automatically re-render its observable parts.
  */
-function render(parent: Element, node: NestedNode, subscriptions: Set<Subscription>) {
+function render(parent: Element, node: NestedNode, subscriptions: Subscription[]) {
   // The `r` function renders a node recursively between `prev` and `next`.
   //
   // Nodes are **always** inserted before `next`, and the `prev` node
@@ -468,19 +474,21 @@ function render(parent: Element, node: NestedNode, subscriptions: Set<Subscripti
 
         const observer = {
           next: renderChild,
-          complete: () => {
-            if (subscription === undefined)
+          complete() {
+            const i = subscriptions.indexOf(subscription)
+
+            if (i === -1)
               // Completing before the end of the subscription
               addSubscription = false
             else
-              subscriptions.delete(subscription)
+              subscriptions.splice(i, 1)
           },
         }
 
         const subscription = obs.subscribe(observer)
 
         if (addSubscription)
-          subscriptions.add(subscription)
+          subscriptions.push(subscription)
       }
 
       return
