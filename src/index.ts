@@ -229,6 +229,9 @@ export function h(
           let styleSubscriptions = null as Set<Subscription>
           let addedStyleSubscriptions = false
 
+          const value = attrs[attr]
+          const $ = value != null && value[ObservableSymbol] !== undefined ? value[ObservableSymbol]() : undefined
+
           const setValue =
             attr === 'className' || attr === 'class' ? (value: any) => {
               if (Array.isArray(value))
@@ -253,7 +256,7 @@ export function h(
 
                 if (obs) {
                   if (styleSubscriptions == null)
-                    styleSubscriptions = new Set<Subscription>()
+                    styleSubscriptions = $ === undefined ? subscriptions : new Set<Subscription>()
 
                   styleSubscriptions.add(obs.subscribe(v => el.style.setProperty(prop, v)))
                 } else {
@@ -277,9 +280,6 @@ export function h(
             (value: any) => {
               el[attr] = value
             }
-
-          const value = attrs[attr]
-          const $ = value != null && value[ObservableSymbol] !== undefined ? value[ObservableSymbol]() : undefined
 
           if ($ !== undefined) {
             subscriptions.add($.subscribe(setValue))
