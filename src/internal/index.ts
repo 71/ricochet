@@ -26,7 +26,7 @@ export function makeObserve<T>(observers: Set<T>): (observer: T) => { unsubscrib
  */
 export function destroy(node?: Node & Partial<JSX.Element>, remove = true) {
   if (node === null)
-    console.error('Bug detected: attempting to destory a null node.')
+    console.error('Bug detected: attempting to destroy a null node.')
 
   if (node === undefined)
     node = this
@@ -41,6 +41,8 @@ export function destroy(node?: Node & Partial<JSX.Element>, remove = true) {
 
   node.subscriptions.clear()
   subscriptions.forEach(x => x.unsubscribe())
+
+  node.dispatchEvent(new Event('destroy'))
 
   if (node.ondestroy != null)
     node.ondestroy()

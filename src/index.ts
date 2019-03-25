@@ -73,15 +73,15 @@ declare global {
     type Element = BaseElement & {
       ondestroy?: () => void
 
+      addEventListener(type: 'destroy', listener: (this: Element, ev: Event) => any, options?: boolean | AddEventListenerOptions): void
       destroy(): void
 
       readonly subscriptions: Set<Subscription>
     }
 
-    // Unfortunately, this does not work:
-    // type IntrinsicAttributes<T> = {
-    //   [attr in keyof T]?: T[attr] | Observable<T[attr]>
-    // }
+    type StyleDeclaration = {
+      [K in keyof CSSStyleDeclaration]?: MaybeObservable<CSSStyleDeclaration[K]>
+    }
 
     type IntrinsicAttributes = {
       children?: NestedNode
@@ -89,14 +89,15 @@ declare global {
     }
 
     type IntrinsicElements = {
-      [key in keyof HTMLElementTagNameMap]: {
-        class   ?: string
+      [K in keyof HTMLElementTagNameMap]: {
         children?: NestedNode
-        ref     ?: (el: HTMLElementTagNameMap[key]) => void
-        style   ?: Partial<CSSStyleDeclaration>
+        class   ?: MaybeObservable<string | string[] | Record<string, boolean>>
+        connect ?: Connectable<HTMLElementTagNameMap[K]> | Connectable<HTMLElementTagNameMap[K]>[]
+        ref     ?: (el: HTMLElementTagNameMap[K]) => void
+        style   ?: MaybeObservable<string | StyleDeclaration>
       } & {
-        [attr in Exclude<keyof HTMLElementTagNameMap[key], 'style' | 'children'>]?:
-          MaybeObservable<HTMLElementTagNameMap[key][attr]>
+        [Attr in Exclude<keyof HTMLElementTagNameMap[K], 'style' | 'children'>]?:
+          MaybeObservable<HTMLElementTagNameMap[K][Attr]>
       }
     }
   }
@@ -213,7 +214,7 @@ export function h(
   const otherProperties = {
     subscriptions,
 
-    destroy: () => destroy(element),
+    destroy: destroy.bind(element)
   }
 
   try {
@@ -224,34 +225,58 @@ export function h(
       const attrs = props
 
       if (attrs != null) {
-        for (let attr in attrs) {
-          const setValue = (value: any) => {
-            if (value == null)
-              return
+        for (const attr in attrs) {
+          let styleSubscriptions = null as Set<Subscription>
+          let addedStyleSubscriptions = false
 
-            if (attr == 'class' || attr == 'className') {
-              attr = 'className'
-
+          const setValue =
+            attr === 'className' || attr === 'class' ? (value: any) => {
               if (Array.isArray(value))
                 value = value.join(' ')
-              else if (typeof value == 'object')
+              else if (typeof value === 'object')
                 value = Object.keys(value).filter(x => value[x]).map(x => value[x].toString()).join(' ')
-            } else if (attr == 'style') {
-              if (typeof value == 'object') {
-                Object.assign(el.style, value)
-              } else {
-                el.setAttribute('style', '' + value)
+
+              el.className = value
+            } :
+            attr === 'style' ? (value: any) => {
+              if (styleSubscriptions != null) {
+                styleSubscriptions.forEach(x => x.unsubscribe())
+                styleSubscriptions.clear()
               }
 
-              return
-            } else if (attr == 'ref') {
+              if (typeof value !== 'object')
+                return el.setAttribute('style', '' + value)
+
+              for (const prop in value) {
+                const v = value[prop]
+                const obs = v[ObservableSymbol] && v[ObservableSymbol]() as Subscribable<any>
+
+                if (obs) {
+                  if (styleSubscriptions == null)
+                    styleSubscriptions = new Set<Subscription>()
+
+                  styleSubscriptions.add(obs.subscribe(v => el.style.setProperty(prop, v)))
+                } else {
+                  el.style.setProperty(prop, v)
+                }
+              }
+
+              if (styleSubscriptions != null && !addedStyleSubscriptions) {
+                subscriptions.add({
+                  unsubscribe() {
+                    styleSubscriptions.forEach(x => x.unsubscribe())
+                  }
+                })
+
+                addedStyleSubscriptions = true
+              }
+            } :
+            attr === 'ref' ? (value: any) => {
               callback = value
-
-              return
+            } :
+            (value: any) => {
+              el[attr] = value
             }
-
-            el[attr] = value
-          }
 
           const value = attrs[attr]
           const $ = value != null && value[ObservableSymbol] !== undefined ? value[ObservableSymbol]() : undefined
@@ -293,7 +318,9 @@ export function h(
       const el = tag(props)
 
       subscriptions.add({
-        unsubscribe: () => el.destroy && el.destroy()
+        unsubscribe() {
+          el.destroy && el.destroy()
+        }
       })
 
       element = el
