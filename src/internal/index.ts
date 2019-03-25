@@ -58,8 +58,18 @@ export function destroyRange(prevIncluded: Node, nextExcluded: Node): void {
   if (nextExcluded == null) {
     const parent = prevIncluded.parentElement
 
-    while (parent.lastChild != prevIncluded)
-      destroy(parent.lastChild)
+    if (parent != null) {
+      while (parent.lastChild != prevIncluded)
+        destroy(parent.lastChild)
+    } else {
+      while (prevIncluded != null) {
+        const next = prevIncluded.nextSibling
+        destroy(prevIncluded)
+        prevIncluded = next
+      }
+
+      return
+    }
   } else {
     while (nextExcluded.previousSibling != prevIncluded)
       destroy(nextExcluded.previousSibling)

@@ -90,13 +90,14 @@ declare global {
 
     type IntrinsicElements = {
       [K in keyof HTMLElementTagNameMap]: {
-        children?: NestedNode
-        class   ?: MaybeObservable<string | string[] | Record<string, boolean>>
-        connect ?: Connectable<HTMLElementTagNameMap[K]> | Connectable<HTMLElementTagNameMap[K]>[]
-        ref     ?: (el: HTMLElementTagNameMap[K]) => void
-        style   ?: MaybeObservable<string | StyleDeclaration>
+        children ?: NestedNode
+        class    ?: MaybeObservable<string | string[] | Record<string, boolean>>
+        className?: MaybeObservable<string | string[] | Record<string, boolean>>
+        connect  ?: Connectable<HTMLElementTagNameMap[K]> | Connectable<HTMLElementTagNameMap[K]>[]
+        ref      ?: (el: HTMLElementTagNameMap[K]) => void
+        style    ?: MaybeObservable<string | StyleDeclaration>
       } & {
-        [Attr in Exclude<keyof HTMLElementTagNameMap[K], 'style' | 'children'>]?:
+        [Attr in Exclude<keyof HTMLElementTagNameMap[K], 'style' | 'children' | 'className'>]?:
           MaybeObservable<HTMLElementTagNameMap[K][Attr]>
       }
     }
@@ -260,9 +261,9 @@ export function h(
                   if (styleSubscriptions == null)
                     styleSubscriptions = $ === undefined ? subscriptions : [] as Subscription[]
 
-                  styleSubscriptions.push(obs.subscribe(v => el.style.setProperty(prop, v)))
+                  styleSubscriptions.push(obs.subscribe(v => el.style[prop] = v))
                 } else {
-                  el.style.setProperty(prop, v)
+                  el.style[prop] = v
                 }
               }
 
