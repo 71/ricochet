@@ -431,7 +431,7 @@ Renders a component.
 
 
 
-#### [`function attach(...subscriptions): void`](src/index.ts#L229-L240)
+#### [`function attach(...subscriptions): void`](src/index.ts#L168-L179)
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -441,7 +441,7 @@ Attaches the given subscriptions to the element that is currently being initiali
 
 
 
-#### [`function mount(node): Element`](src/index.ts#L241-L245)
+#### [`function mount(node): Element`](src/index.ts#L180-L184)
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -451,7 +451,7 @@ Mounts an observable node as a simple element.
 
 
 
-#### [`function mount(node, el): Subscription`](src/index.ts#L246-L250)
+#### [`function mount(node, el): Subscription`](src/index.ts#L185-L189)
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -462,7 +462,7 @@ Mounts the given observable node as a child of the given element.
 
 
 
-#### [`function eventListener<N, E>(type, opts): Connectable<N> & Subscribable<E>`](src/index.ts#L467-L495)
+#### [`function eventListener<N, E>(type, opts): Connectable<N> & Subscribable<E>`](src/index.ts#L419-L447)
  - `N`: `Node`
  - `E`: `Event`
 
@@ -480,7 +480,7 @@ or more elements.
 ### [`ricochet/array`](src/array.ts)
 Utilities for rendering lists efficiently with the `ObservableArray` type.
 
-#### [`type ArrayObserver<T>`](src/array.ts#L7-L18)
+#### [`type ArrayObserver<T>`](src/array.ts#L6-L17)
 
 Defines an object that can listen to changes to an `ObservableArray`.
 
@@ -498,12 +498,23 @@ type ArrayObserver<T> = {
 ```
 
 
-#### [`interface ObservableArray<T> extends Array<T>`](src/array.ts#L19-L22)
-Defines an array whose changes can be observed.
+#### [`interface ReadonlyObservableArrayMembers<T>`](src/array.ts#L18-L22)
+Interfaces which exports all members implemented by `ReadonlyObservableArray<T>`,
+but not `ReadonlyArray<T>`. Required by TypeScript.
 
 
 
-##### [`observe(observer, init): Subscription`](src/array.ts#L23-L30)
+##### [`readonly length$: Subscribable<number>`](src/array.ts#L23-L27)
+Returns an observable sequence that emits whenever the length of this array changes.
+
+
+
+##### [`readonly change$: Subscribable<[number, T]>`](src/array.ts#L28-L32)
+Returns an observable sequence that emits whenever an item is modified.
+
+
+
+##### [`observe(observer, init): Subscription`](src/array.ts#L33-L40)
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
 | observer | `ArrayObserver<T>` | None |
@@ -514,44 +525,65 @@ Observes changes made to the array.
 
 
 
-##### [`map<R>(f, thisArg): ObservableArray<R>`](src/array.ts#L31-L36)
+##### [`mapArray<R>(f, thisArg): Observable<R>`](src/array.ts#L41-L46)
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
-| f | `(value: T, index: number, array: Array<T>) => R` | None |
+| f | `(array: ReadonlyArray<T>) => R` | None |
 | thisArg | `any` | None |
+
+Returns an observable sequence that gets updated everytime this array
+changes.
+
+
+
+##### [`sync<R>(f): ReadonlyObservableArray<R>`](src/array.ts#L47-L53)
+| Parameter | Type | Description |
+| --------- | ---- | ----------- |
+| f | `(value: T, index: number) => R` | None |
 
 Propagates changes to the items of the given list to items of a new list,
 according to a `map` function.
 
 
 
-##### [`swap(a, b): T extends NestedNode ? void: never`](src/array.ts#L37-L42)
+#### [`interface ReadonlyObservableArray<T> extends ReadonlyArray<T>, ReadonlyObservableArrayMembers<T>`](src/array.ts#L54-L58)
+Defines a readonly array whose changes can be observed.
+
+
+
+#### [`interface ObservableArray<T> extends Array<T>, ReadonlyObservableArrayMembers<T>`](src/array.ts#L59-L62)
+Defines an array whose changes can be observed.
+
+
+
+##### [`sync<R>(f, g): ObservableArray<R>`](src/array.ts#L63-L68)
+| Parameter | Type | Description |
+| --------- | ---- | ----------- |
+| f | `(value: T, index: number) => R` | None |
+| g | `(value: R, index: number) => T` | None |
+
+Propagates changes to the items of the given list to items of a new list,
+and back again.
+
+
+
+##### [`swap(a, b): T extends NestedNode ? void : never`](src/array.ts#L69-L155)
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
 | a | `number` | None |
 | b | `number` | None |
 
-Swaps the values at the two given indices in the DOM.
+Swaps the values at the two given indices.
 
 
 
-#### [`function isObservableArray<T>(array): array is ObservableArray<T>`](src/array.ts#L43-L49)
+#### [`function isObservableArray<T>(array): array is ObservableArray<T>`](src/array.ts#L156-L162)
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
 | array | `any` | None |
 
 Returns whether the given array is an `ObservableArray`.
-
-
-
-#### [`function observableArray<T>(...array): ObservableArray<T>`](src/array.ts#L50-L111)
-
-| Parameter | Type | Description |
-| --------- | ---- | ----------- |
-| array | `T[]` | None |
-
-Returns an observable array.
 
 
 
@@ -619,16 +651,11 @@ an element that will be replaced by the resolved element when the promise finish
 Utilities for creating and combining observable streams and subjects.
 
 #### [`interface Subject<T> extends Subscribable<T>`](src/reactive.ts#L5-L8)
-Defines a reactive value that can be updated.
+Defines a value that is both observable and observer.
 
 
 
-##### [`readonly value: T`](src/reactive.ts#L9-L11)
-Returns the underlying value.
-
-
-
-##### [`next(newValue): void`](src/reactive.ts#L12-L18)
+##### [`next(newValue): void`](src/reactive.ts#L9-L13)
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
 | newValue | `T` | None |
@@ -637,46 +664,7 @@ Updates the underlying value, notifying all observers of a change.
 
 
 
-#### [`interface ExtendedSubject<T> extends Subject<T>`](src/reactive.ts#L19-L23)
-Defines the full set of operations supported by the `Subject`
-returned by `subject`.
-
-
-
-##### [`value: T`](src/reactive.ts#L24-L28)
-Gets or sets the underlying value.
-
-
-
-##### [`setUnderlyingValue(newValue): void`](src/reactive.ts#L29-L33)
-| Parameter | Type | Description |
-| --------- | ---- | ----------- |
-| newValue | `T` | None |
-
-Sets the underlying value without notifying observers.
-
-
-
-##### [`map<R>(map): Observable<R>`](src/reactive.ts#L34-L38)
-| Parameter | Type | Description |
-| --------- | ---- | ----------- |
-| map | `(input: T) => R` | None |
-
-Returns a new `Observable` that gets updated when this subject changes.
-
-
-
-##### [`map<R>(map, unmap): ExtendedSubject<R>`](src/reactive.ts#L39-L45)
-| Parameter | Type | Description |
-| --------- | ---- | ----------- |
-| map | `(input: T) => R` | None |
-| unmap | `(input: R) => T` | None |
-
-Returns a new `Subject` value that propagates changes to values both ways.
-
-
-
-#### [`function isSubject<T>(value): value is ExtendedSubject<T>`](src/reactive.ts#L46-L52)
+#### [`function isSubject<T>(value): value is BuiltinSubject<T>`](src/reactive.ts#L14-L20)
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -686,7 +674,45 @@ Returns whether the given value is a subject created with `subject`.
 
 
 
-#### [`function subject<T>(initialValue): ExtendedSubject<T>`](src/reactive.ts#L53-L129)
+#### [`class BuiltinSubject<T> implements Subject<T>`](src/reactive.ts#L21-L37)
+`Subject` augmented with some specialized operations, returned by `subject`.
+
+
+
+##### [`value: T`](src/reactive.ts#L38-L56)
+Gets or sets the underlying value.
+
+
+
+##### [`setUnderlyingValue(value)`](src/reactive.ts#L57-L76)
+| Parameter | Type | Description |
+| --------- | ---- | ----------- |
+| value | `T` | None |
+
+Sets the underlying value without notifying observers.
+
+
+
+##### [`map<R>(map): Subscribable<R>`](src/reactive.ts#L77-L81)
+| Parameter | Type | Description |
+| --------- | ---- | ----------- |
+| map | `(input: T) => R` | None |
+
+Returns a new `Observable` that gets updated when this subject changes.
+
+
+
+##### [`map<R>(map, unmap): BuiltinSubject<R>`](src/reactive.ts#L82-L116)
+| Parameter | Type | Description |
+| --------- | ---- | ----------- |
+| map | `(input: T) => R` | None |
+| unmap | `(input: R) => T` | None |
+
+Returns a new `Subject` value that propagates changes to values both ways.
+
+
+
+#### [`function subject<T>(initialValue): BuiltinSubject<T>`](src/reactive.ts#L117-L124)
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -696,7 +722,12 @@ Returns a reactive wrapper around the given value.
 
 
 
-#### [`function constant<T>(value): Subscribable<T>`](src/reactive.ts#L130-L160)
+#### [`class Constant<T> implements Subscribable<T>`](src/reactive.ts#L125-L150)
+`Subscrible` that represents a constant value, returned by `constant`.
+
+
+
+#### [`function constant<T>(value): Constant<T>`](src/reactive.ts#L151-L162)
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -712,7 +743,13 @@ is expected somewhere, but a single constant value can be provided.
 
 
 
-#### [`function compute<T>(computation): Subscribable<T>`](src/reactive.ts#L161-L219)
+#### [`class ComputeObservable<T> extends BuiltinObservable<T>`](src/reactive.ts#L163-L215)
+An `Observable` that computes its values based on an arbitrary computation,
+which may itself depend on other observable sequences; returned by `compute`.
+
+
+
+#### [`function compute<T>(computation): ComputeObservable<T> | Constant<T>`](src/reactive.ts#L216-L244)
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
@@ -748,15 +785,22 @@ b.next(20) // Prints '30'
 
 ```
 
-#### [`function combine<O>(...observables): Subscribable<{ [K in keyof O]: O[K] extends Observable<infer T> ? T : never }>`](src/reactive.ts#L220-L237)
- - `O`: `Observable<any>[]`
+#### [`type ObservableValueTypes<O>`](src/reactive.ts#L245-L251)
 
-| Parameter | Type | Description |
-| --------- | ---- | ----------- |
-| observables | `O` | None |
+Maps `Observable<T>` properties of an object to `T`.
 
-Returns an observable that gets updated when any of the given
-observables gets updated as well.
+
+Defined as:
+```typescript
+type ObservableValueTypes<O> = {
+  [K in keyof O]: O[K] extends Observable<infer T> ? T : O[K]
+}
+```
+
+
+#### [`class CombineObservable<O extends any[]> extends BuiltinObservable<ObservableValueTypes<O>>`](src/reactive.ts#L252-L278)
+An `Observable` sequence that emits values when any of its dependencies
+is updated; returned by `combine`.
 
 
 

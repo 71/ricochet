@@ -94,12 +94,14 @@ for (const file in files) {
     decl = decl
             .replace(/\r?\n|\r/g, ';')
             .replace(/ +/g, ' ')
-            .replace(/(?<!T) +:/g, ':')
+            .replace(/(?<!T|void) +:/g, ':')
             .replace(/([({,)]);/g, '$1')
             .replace(/[;,]([})])/g, '$1')
             .replace(/\( +/g, '(')
             .replace(/^(interface.+?)\s+{.*$/, '$1')
             .replace(/^(function.+?(<.+?>.*?)?\(.*?\).*?)\s+{.*$/g, '$1')
+            .replace(/^(class.+?)\s+{.*$/, '$1')
+            .replace(/^get +(.+?)\({.*$/, 'property $1')
             .replace(/([^{\s])}/g, '$1 }')
             .replace('ObservableSymbol', 'Symbol.observable')
 
