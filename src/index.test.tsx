@@ -1,5 +1,5 @@
 import { h, eventListener, valueBinder } from '.'
-import { subject } from './reactive';
+import { subject }                       from './reactive'
 
 describe('Core JSX rendering', () => {
   it('Renders intrinsic elements', () => {

@@ -10,7 +10,7 @@
   "scripts": {
     "start": "parcel src/*.ts",
     "build": "webpack",
-    "examples": "parcel examples/index.pug --no-cache",
+    "examples": "parcel examples/index.pug --no-cache --no-hmr",
     "examples:build": "parcel build examples/index.pug",
     "test": "jest",
     "docs": "ts-node write-docs.ts"

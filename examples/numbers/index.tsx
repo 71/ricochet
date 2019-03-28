@@ -24,7 +24,7 @@ document.body.appendChild(
 
 document.body.appendChild(
   <ul>
-    { numbers.map(i => <li>{i}</li>) }
+    { numbers.sync(i => <li>{i}</li>) }
   </ul>
 )
 

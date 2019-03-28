@@ -1,6 +1,6 @@
 import UntypedObservableSymbol from 'symbol-observable'
 
-import { destroy, destroyRange } from './internal'
+import { destroy, destroyRange, DestroyableElementSubscription } from './internal'
 import { Subject }               from './reactive'
 
 
@@ -464,7 +464,14 @@ function render(parent: Element, node: NestedNode, subscriptions: Subscription[]
           if (hadValue)
             destroyRange(prev[0], next[0])
 
-          r(newValue, prev, next, false)
+          try {
+            initSubscriptions.push(subscriptions)
+
+            r(newValue, prev, next, false)
+          } finally {
+            initSubscriptions.pop()
+          }
+
           hadValue = prev[0] !== undefined
 
           if (prev[0] === undefined)
@@ -502,7 +509,7 @@ function render(parent: Element, node: NestedNode, subscriptions: Subscription[]
     }
 
     if (Array.isArray(node)) {
-      if (node.length == 0)
+      if (node.length === 0)
         return
 
       // Insert nodes in reverse order before the insertion point.
@@ -536,6 +543,7 @@ function render(parent: Element, node: NestedNode, subscriptions: Subscription[]
     // guaranteed the current element won't move.
 
     prev[0] = parent.insertBefore(node instanceof Node ? node : new Text(node.toString()), next[0])
+    DestroyableElementSubscription.attach(prev[0], subscriptions)
   }
 
   r(node, [undefined], [undefined], true)

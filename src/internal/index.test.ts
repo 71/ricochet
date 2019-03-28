@@ -1,5 +1,5 @@
-import { destroy, destroyRange, makeObserve } from '.'
-import { html } from './test-utils'
+import { destroyRange } from '.'
+import { html }         from './test-utils'
 
 describe('Internal utilities', () => {
   it('Destroys nodes recursively properly', () => {

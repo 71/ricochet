@@ -1,22 +1,4 @@
-import { Subscription, Observer, Observable, Subscribable } from "..";
-
-/**
- * Generates a `subscribe` method that uses the given set as a backing store.
- */
-export function makeObserve<T>(observers: Set<T>): (observer: T) => { unsubscribe: () => void } {
-  return (function(this: Set<T>, observer: T) {
-    if (observer == null)
-      throw new Error('The given observer cannot be null.')
-
-    observers.add(observer)
-
-    return {
-      unsubscribe: () => {
-        observers.delete(observer)
-      }
-    }
-  }).bind(observers)
-}
+import { Subscription, Observer, Subscribable, ObservableSymbol } from '..'
 
 
 /**
@@ -84,14 +66,70 @@ export function destroyRange(prevIncluded: Node, nextExcluded: Node): void {
  * in a set `observers: Set<Observer<T>>`, and that may need to execute
  * custom methods when it starts or stops being observed.
  */
-export interface BuiltinObservable<T> extends Subscribable<T> {
+export abstract class BuiltinObservable<T> implements Subscribable<T> {
+  abstract [ObservableSymbol](): BuiltinObservable<T>
+
   /** The observers of the observable. */
-  readonly observers: Set<Observer<T>>
+  private readonly observers = new Set<Observer<T>>()
+
+  /** Whether we closed via complete(). */
+  private isClosed = false
+
+  /** Returns whether this observable completed. */
+  get closed() {
+    return this.isClosed
+  }
+
+  subscribe(observer: Observer<T>): Subscription {
+    if (this.isClosed)
+      return undefined
+
+    /**
+     * A `Subscription` that automatically manages observers to a `BuiltinObservable<T>`,
+     * ensuring that all resources are disposed when the observable is deactivated.
+     */
+    class DisposingSubscription<T> implements Subscription {
+      /** Creates the subscription, performing all necesarry steps. */
+      constructor(readonly obs: BuiltinObservable<T>, readonly observer: Observer<T>) {
+        if (obs.observers.size === 0)
+          obs.subscribeToDependencies()
+
+        obs.observers.add(observer)
+      }
+
+      unsubscribe() {
+        const obs = this.obs
+
+        if (obs.observers.delete(this.observer) && obs.observers.size === 0)
+          obs.unsubscribeFromDependencies()
+      }
+    }
+
+    return new DisposingSubscription(this as any, observer)
+  }
+
+  /** Notify observers of the update of the observable sequence. */
+  protected next(value: T) {
+    this.observers.forEach(x => typeof x === 'object' ? x.next(value) : x(value))
+  }
+
+  /** Notify observers of the completion of the observable sequence. */
+  protected complete() {
+    if (this.observers.size === 0)
+      return
+
+    this.isClosed = true
+
+    this.observers.forEach(x => typeof x === 'object' && x.complete())
+    this.observers.clear()
+    this.unsubscribeFromDependencies()
+  }
 
   /** A method used to subscribe to dependencies of the observable when it is activated. */
-  subscribeToDependencies(): void
+  protected abstract subscribeToDependencies(): void
+
   /** A method used to unsubscribe from the dependencies of the observable when it is deactivated. */
-  unsubscribeFromDependencies(): void
+  protected abstract unsubscribeFromDependencies(): void
 }
 
 /**
@@ -110,22 +148,22 @@ export class SetRemovalSubscription<T> implements Subscription {
 }
 
 /**
- * A `Subscription` that automatically manages observers to a `BuiltinObservable<T>`,
- * ensuring that all resources are disposed when the observable is deactivated.
+ * A subscription to an element created with `h`, which can be destroyed.
  */
-export class DisposingSubscription<T> implements Subscription {
-  /** Creates the subscription, performing all necesarry steps. */
-  constructor(readonly obs: BuiltinObservable<T>, readonly observer: Observer<T>) {
-    if (obs.observers.size === 0)
-      obs.subscribeToDependencies()
-
-    obs.observers.add(observer)
-  }
+export class DestroyableElementSubscription implements Subscription {
+  /** Creates the subscription. */
+  constructor(readonly element: Node) {}
 
   unsubscribe() {
-    const obs = this.obs
+    destroy(this.element)
+  }
 
-    if (obs.observers.delete(this.observer) && obs.observers.size === 0)
-      obs.unsubscribeFromDependencies()
+  /**
+   * Attaches a `DestroyableElementSubscription` to the given `subscriptions`
+   * if the given element is destroyable.
+   */
+  static attach(element: Node, subscriptions: Subscription[]) {
+    if (typeof (element as JSX.Element).subscriptions === 'object')
+      subscriptions.push(new DestroyableElementSubscription(element))
   }
 }

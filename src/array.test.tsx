@@ -7,12 +7,66 @@ describe('Observable array utilities', () => {
   })
 
   it('Keeps mapped arrays in sync', () => {
+    const a = observableArray(1, 3)
+    const b = a.sync(x => x * 2)
 
+    expect(a[0]).toBe(1)
+    expect(b[0]).toBe(2)
+
+    expect(a[1]).toBe(3)
+    expect(b[1]).toBe(6)
+
+    expect(a.push(5)).toBe(3)
+    expect(a.length).toBe(3)
+
+    expect(b.length).toBe(3)
+    expect(a[2]).toBe(5)
+    expect(b[2]).toBe(10)
+
+    const c = a.sync(x => ''+x, x => +x)
+
+    expect(c[0]).toBe('1')
+    expect(c[1]).toBe('3')
+    expect(c[2]).toBe('5')
+
+    console.log(c)
+    a[2] = 42
+
+    expect(a[2]).toBe(42)
+    expect(b[2]).toBe(84)
+    expect(c[2]).toBe('42')
+
+    c[1] = '9'
+
+    expect(a[1]).toBe(9)
+    expect(b[1]).toBe(18)
+    expect(c[1]).toBe('9')
+  })
+
+  it('Keeps mapped arrays in sync (other operations)', () => {
+    const a = observableArray(1, 2, 3)
+    const b = a.sync(x => x * 2)
+    const c = a.sync(x => ''+x, x => +x)
+
+    function check() {
+      for (let i = 0; i < a.length; i++) {
+        expect(b[i]).toBe(a[i] * 2)
+        expect(c[i]).toBe(''+ a[i])
+      }
+    }
+
+    check()
+
+    a.reverse()
+    check()
+
+    c.reverse()
+    check()
   })
 
   const NumberList = ({ numbers }: { numbers: ObservableArray<number> }) => (
     <ul>
-      { numbers.map((n, i) => <li className={'number-'+i}>{n}</li>) }
+      { numbers.sync((n, i) => <li className={'number-'+i}>{n}</li>) }
     </ul>
   )
 

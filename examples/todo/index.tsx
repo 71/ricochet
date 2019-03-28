@@ -1,6 +1,6 @@
-import { h, Observable }                     from '../../src'
-import { observableArray, ObservableArray }  from '../../src/array'
-import { subject, ExtendedSubject, Subject } from '../../src/reactive'
+import { h, Observable }                    from '../../src'
+import { observableArray, ObservableArray } from '../../src/array'
+import { subject, BuiltinSubject, Subject } from '../../src/reactive'
 
 
 interface TodoProps extends JSX.IntrinsicAttributes {
@@ -20,7 +20,7 @@ const Todo = ({ done, click = () => null, ...props }: TodoProps) => (
 
 interface TodoAppProps {
   pageTitle: string | Observable<string>
-  text    ?: ExtendedSubject<string>
+  text    ?: BuiltinSubject<string>
   todos   ?: ObservableArray<{ done: Subject<boolean>, text: string }>
 }
 
@@ -41,7 +41,7 @@ const TodoApp = ({ pageTitle, todos = observableArray(), text = subject('') }: T
       <ul class={pageTitle == 'Home' ? 'home-list' : ''}>
         <li>What am I doing here?</li>
 
-        { todos.map(({ text, done }) =>
+        { todos.sync(({ text, done }) =>
           <Todo done={done}>{text}</Todo>
         ) }
 

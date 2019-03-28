@@ -1,8 +1,7 @@
-import { RenderFunction, Subscription, NodeRef, NestedNode } from '.'
-import { destroyRange, makeObserve }    from './internal'
+import { RenderFunction, Subscription, NodeRef, NestedNode, Observable, Observer, Subscribable, ObservableSymbol, CustomNode, attach } from '.'
+import { destroyRange, BuiltinObservable } from './internal'
+import { BuiltinSubject }                  from './reactive'
 
-
-const observableArraySymbol = Symbol('observableArray')
 
 /**
  * Defines an object that can listen to changes to an `ObservableArray`.
@@ -17,9 +16,20 @@ export type ArrayObserver<T> = {
 }
 
 /**
- * Defines an array whose changes can be observed.
+ * Interfaces which exports all members implemented by `ReadonlyObservableArray<T>`,
+ * but not `ReadonlyArray<T>`. Required by TypeScript.
  */
-export interface ObservableArray<T> extends Array<T> {
+export interface ReadonlyObservableArrayMembers<T> {
+  /**
+   * Returns an observable sequence that emits whenever the length of this array changes.
+   */
+  readonly length$: Subscribable<number>
+
+  /**
+   * Returns an observable sequence that emits whenever an item is modified.
+   */
+  readonly change$: Subscribable<[number, T]>
+
   /**
    * Observes changes made to the array.
    *
@@ -29,84 +39,281 @@ export interface ObservableArray<T> extends Array<T> {
   observe(observer: ArrayObserver<T>, init?: boolean): Subscription
 
   /**
+   * Returns an observable sequence that gets updated everytime this array
+   * changes.
+   */
+  mapArray<R>(f: (array: ReadonlyArray<T>) => R, thisArg?: any): Observable<R>
+
+  /**
    * Propagates changes to the items of the given list to items of a new list,
    * according to a `map` function.
    */
-  map<R>(f: (value: T, index: number, array: Array<T>) => R, thisArg?: any): ObservableArray<R>
+  sync<R>(f: (value: T, index: number) => R): ReadonlyObservableArray<R>
+}
+
+/**
+ * Defines a readonly array whose changes can be observed.
+ */
+export interface ReadonlyObservableArray<T> extends ReadonlyArray<T>, ReadonlyObservableArrayMembers<T> { }
+
+/**
+ * Defines an array whose changes can be observed.
+ */
+export interface ObservableArray<T> extends Array<T>, ReadonlyObservableArrayMembers<T> {
+  /**
+   * Propagates changes to the items of the given list to items of a new list,
+   * and back again.
+   */
+  sync<R>(f: (value: T, index: number) => R, g?: (value: R, index: number) => T): ObservableArray<R>
 
   /**
-   * Swaps the values at the two given indices in the DOM.
+   * Swaps the values at the two given indices.
    */
   swap(a: number, b: number): T extends NestedNode ? void : never
 }
 
-/**
- * Returns whether the given array is an `ObservableArray`.
- */
-export function isObservableArray<T>(array: any): array is ObservableArray<T> {
-  return array != null && array[observableArraySymbol] !== undefined
+function isPureOperation(functionName: string): functionName is string & keyof ReadonlyArray<any> {
+  return [
+    'concat'  , 'entries'    , 'every', 'filter', 'find'          , 'findIndex', 'forEach',
+    'includes', 'indexOf'    , 'join' , 'keys'  , 'lastIndexOf'   , 'length'   , 'map'    ,
+    'reduce'  , 'reduceRight', 'slice', 'some'  , 'toLocaleString', 'toString' , 'values' ,
+  ].includes(functionName)
 }
 
-/**
- * Returns an observable array.
- */
-export function observableArray<T>(...array: T[]): ObservableArray<T> {
-  // FIXME: Memory leaks (ignored subscriptions)
-  const observers = new Set<ArrayObserver<T>>()
-  const observeInternal = makeObserve(observers)
+function getReadonlyView<T>(array: T[]): T[] {
+  return new Proxy(array, { set() { throw new Error('Cannot update readonly view.') } })
+}
 
-  const map = <R>(f: (value: T, index: number, array: Array<T>) => R, thisArg?: any) => {
-    const arr = observableArray(...array.map(f, thisArg))
-    const subscription = observeInternal({
-      set: (i, v) => arr[i] = f(v, i, array),
+class MutualRecursionLock {
+  private locked = false
 
-      splice: (start: number, deleteCount: number, ...items: T[]) => {
-        arr.splice(start, deleteCount, ...items.map(f, thisArg))
-      },
-      pop: () => {
-        arr.pop()
-      },
-      shift: () => {
-        arr.shift()
-      },
-      push: (...items: T[]) => {
-        arr.push(...items.map(f, thisArg))
-      },
-      unshift: (...items: T[]) => {
-        arr.unshift(...items.map(f, thisArg))
-      },
-      reverse: () => {
-        arr.reverse()
+  lock() {
+    return this.locked ? false : this.locked = true
+  }
+
+  unlock() {
+    this.locked = false
+  }
+}
+
+class ObservableArrayImpl<T> extends Array<T> implements Partial<ObservableArray<T>>, CustomNode {
+  private readonly observers = new Set<ArrayObserver<T>>()
+  private readonly changeObservers = new Set<Observer<[number, T]>>()
+
+  private readonly isReadOnly: boolean
+  private readonly length$$: BuiltinSubject<number>
+
+  readonly proxy: ObservableArray<T>
+
+  readonly change$: Subscribable<[number, T]>
+  readonly length$: Subscribable<number>
+
+  readonly impl: ObservableArrayImpl<T>
+
+  constructor(
+    private readonly data   : T[],
+    private readonly source?: ObservableArrayImpl<any>,
+    mapTo  ?: (value: any, index: number) => T,
+    mapFrom?: (value:   T, index: number) => any,
+  ) {
+    super(...data)
+
+    this.impl = this
+    this.isReadOnly = source !== undefined && mapFrom === undefined
+
+    if (source && source.impl)
+      source = source.impl
+
+    this.length$$ = new BuiltinSubject(data.length)
+    this.length$  = this.length$$.map(x => x)
+
+    this.change$ = {
+      [ObservableSymbol]: () => {
+        return this.change$
       },
 
-      fill: (value: T, start?: number, end?: number) => {
-        if (start === undefined)
-          start = 0
-        if (end === undefined)
-          end = arr.length
+      subscribe: observer => {
+        this.changeObservers.add(observer)
 
-        for (let i = start; i < end; i++)
-          arr[i] = f.call(thisArg, value, i, array)
+        return {
+          unsubscribe: () => {
+            this.changeObservers.delete(observer)
+          }
+        }
+      }
+    }
+
+    this.proxy = new Proxy(this, {
+      get(self, p) {
+        return self.getProperty(p as any, self.isReadOnly)
+      },
+
+      set(self, p, value) {
+        return self.setProperty(p as any, value)
       },
     })
 
-    return arr
+    // We use a lock to avoid having arrays recursively updating
+    // themselves
+    const lock = new MutualRecursionLock()
+
+    if (mapTo !== undefined)
+      ObservableArrayImpl.mirror(source, this, mapTo, lock)
+
+    if (mapFrom !== undefined)
+      ObservableArrayImpl.mirror(this, source, mapFrom, lock)
   }
 
-  const observe = (observer: ArrayObserver<T>, init = false) => {
-    const subscription = observeInternal(observer)
+  private getProperty<P extends keyof this>(property: P, readonly: boolean): this[P] {
+    const p = property as number | symbol | string
 
-    if (init) {
-      if (typeof observer.push === 'function')
-        observer.push(...array)
-      else
-        array.forEach((v, i) => observer.set(i, v))
+    if (typeof p !== 'string')
+      return this.data[p] as any
+    if (p === 'length')
+      return this.data.length as any
+    if (Number.isInteger(+p))
+      return this.data[+p] as any
+
+    let prop = this[p]
+
+    if (typeof prop !== 'function' || ObservableArrayImpl.prototype.hasOwnProperty(p))
+      return prop
+
+    if (isPureOperation(p))
+      // @ts-ignore
+      return Array.prototype[p].bind(this.data)
+
+    if (readonly) {
+      // We have a source, therefore we are immutable. Create a proxy to reflect this.
+      return ((...args) => {
+        return Array.prototype[p].apply(getReadonlyView(this.data), args)
+      }) as any
     }
 
-    return subscription
+    return function(this: ObservableArrayImpl<T>) {
+      // Some observers may not define a direct implementation of the
+      // function that was called. Therefore, we want to use the 'set' function
+      // for all accesses, which is how arrays work at their lowest level.
+      const fallbackObservers = [] as ArrayObserver<T>[]
+
+      for (const observer of this.observers) {
+        const cb = observer[p]
+
+        if (cb === undefined)
+          fallbackObservers.push(observer)
+        else
+          cb(...arguments)
+      }
+
+      if (fallbackObservers.length === 0 && this.changeObservers.size === 0)
+        return prop.apply(this.proxy, arguments)
+
+      const passthrough = new Proxy(this.data, {
+        set: (data, p, v) => {
+          if (typeof p === 'number' || typeof p === 'string' && Number.isInteger(+p)) {
+            const pp = +p
+
+            fallbackObservers.forEach(x => x.set(pp, v))
+            this.changeObservers.forEach(x => (typeof x === 'function' ? x : x.next)([pp, v]))
+          }
+
+          data[p] = v
+
+          return true
+        }
+      })
+
+      return Array.prototype[p].apply(passthrough, arguments)
+    }.bind(this) as any
   }
 
-  const render = (_: Element, prev: NodeRef, next: NodeRef, r: RenderFunction) => {
+  private setProperty<K extends keyof this>(property: K, propertyValue: this[K]) {
+    let p = property as number | symbol | string
+    let value = propertyValue as any
+
+    if (p === 'length') {
+      this.data.length = value
+      this.length$$.next(value)
+
+      return true
+    }
+
+    if (typeof p === 'symbol') {
+      this.data[p] = value
+
+      return true
+    }
+
+    if (typeof p === 'string')
+      p = +p
+    if (!Number.isInteger(p) || p < 0 || p > this.data.length)
+      return false
+
+    for (const observer of this.changeObservers)
+      (typeof observer === 'function' ? observer : observer.next)([p, value])
+
+    for (const observer of this.observers)
+      observer.set(p, value)
+
+    this.data[p] = value
+
+    return true
+  }
+
+  sync<R>(f: (value: T, index: number) => R, g?: (value: R, index: number) => T): ObservableArray<R> {
+    return new ObservableArrayImpl(this.data.map(f), this, f, g).proxy
+  }
+
+  mapArray<R>(f: (array: ReadonlyArray<T>) => R): Observable<R> {
+    return new class extends BuiltinObservable<R> {
+      private subscription: Subscription
+
+      constructor(readonly array: ObservableArrayImpl<T>, readonly f: (array: ReadonlyArray<T>) => R) {
+        super()
+      }
+
+      [ObservableSymbol]() {
+        return this
+      }
+
+      protected subscribeToDependencies(): void {
+        this.subscription = this.array.change$.subscribe(() => this.next(f(this.array.data)))
+      }
+
+      protected unsubscribeFromDependencies(): void {
+        this.subscription.unsubscribe()
+      }
+    }(this, f)
+  }
+
+  swap(a: number, b: number): T extends NestedNode ? void : never {
+    const tmp = this[a]
+
+    this[a] = this[b]
+    this[b] = tmp
+
+    return undefined
+  }
+
+  observe(observer: ArrayObserver<T>, init?: boolean): Subscription {
+    this.observers.add(observer)
+
+    if (init) {
+      if (typeof observer.push === 'function') {
+        observer.push(...this.data)
+      } else {
+        this.data.forEach((v, i) => observer.set(i, v))
+      }
+    }
+
+    return {
+      unsubscribe: () => {
+        this.observers.delete(observer)
+      }
+    }
+  }
+
+  render(_: Element, prev: NodeRef, next: NodeRef, r: RenderFunction) {
     const firstPrev = prev
     const lastNext = next
 
@@ -153,7 +360,7 @@ export function observableArray<T>(...array: T[]): ObservableArray<T> {
       renderedNodes.splice(start, deleteCount, ...generated)
     }
 
-    const subscription = observe({
+    attach(this.observe({
       set: (i, v) => {
         if (renderedNodes[i] === undefined) {
           // Pushing a new node
@@ -257,10 +464,6 @@ export function observableArray<T>(...array: T[]): ObservableArray<T> {
         }
       },
 
-      find: () => {},
-      findIndex: () => {},
-      forEach: () => {},
-
       // @ts-ignore
       swap: (ai: number, bi: number) => {
         if (ai === bi)
@@ -296,92 +499,107 @@ export function observableArray<T>(...array: T[]): ObservableArray<T> {
         a[0] = b[0]
         b[0] = tmp
       },
-    }, true)
+    }, true))
   }
 
-  const proxy = new Proxy({
-    __observers: observers,
-    __values   : array,
+  private static mirror<T, R>(
+    source: ObservableArrayImpl<T>,
+    target: ObservableArrayImpl<R>,
+    transform: (value: T, index: number) => R,
+    lock: MutualRecursionLock,
+  ) {
+    return source.observe({
+      set(i, v) {
+        if (!lock.lock())
+          return
 
-    observe,
-    map,
-    render,
-  }, {
-    get: (t, p) => {
-      const { __observers: observers, __values: values } = t
+        target.setProperty(i, transform(v, i))
+        lock.unlock()
+      },
 
-      if (typeof p == 'number')
-        return values[p]
+      splice(start: number, deleteCount: number, ...items: T[]) {
+        if (!lock.lock())
+          return
 
-      const trap = t[p]
+        target.getProperty('splice', false)(start, deleteCount, ...items.map(transform))
+        lock.unlock()
+      },
 
-      if (trap !== undefined)
-        return trap
+      pop() {
+        if (!lock.lock())
+          return
 
-      const prop = values[p]
+        target.getProperty('pop', false)()
+        lock.unlock()
+      },
+      shift() {
+        if (!lock.lock())
+          return
 
-      if (typeof prop === 'function') {
-        // The 'value' is in fact an array prototype function, so we
-        // return a wrapper around it
+        target.getProperty('shift', false)()
+        lock.unlock()
+      },
 
-        return t[p] = function() {
-          // Some observers may not define a direct implementation of the
-          // function that was called. Therefore, we want to use the 'set' function
-          // for all accesses, which is how arrays work at their lowest level.
-          const fallbackObservers = [] as ArrayObserver<T>[]
+      push(...items: T[]) {
+        if (!lock.lock())
+          return
 
-          for (const observer of observers) {
-            const cb = observer[p]
+        target.getProperty('push', false)(...items.map(transform))
+        lock.unlock()
+      },
+      unshift(...items: T[]) {
+        if (!lock.lock())
+          return
 
-            if (cb === undefined)
-              fallbackObservers.push(observer)
-            else
-              cb(...arguments)
-          }
+        target.getProperty('unshift', false)(...items.map(transform))
+        lock.unlock()
+      },
 
-          if (fallbackObservers.length === 0)
-            return prop.apply(values, arguments)
+      reverse() {
+        if (!lock.lock())
+          return
 
-          const passthrough = new Proxy(values, {
-            get: (t, p) => t[p],
-            set: (t, p, v) => {
-              if (typeof p === 'string' && Number.isInteger(+p))
-                fallbackObservers.forEach(x => x.set(+p, v))
-              else if (typeof p === 'number')
-                fallbackObservers.forEach(x => x.set(p, v))
+        target.getProperty('reverse', false)()
+        lock.unlock()
+      },
 
-              t[p] = v
+      // @ts-ignore
+      swap(a: number, b: number) {
+        if (!lock.lock())
+          return
 
-              return true
-            }
-          })
+        target.getProperty('swap', false)(a, b)
+        lock.unlock()
+      },
 
-          return Array.prototype[p].apply(passthrough, arguments)
-        }
-      }
+      fill(value: T, start?: number, end?: number) {
+        if (!lock.lock())
+          return
 
-      return prop
-    },
+        if (start === undefined)
+          start = 0
+        if (end === undefined)
+          end = target.length
 
-    set: ({ __observers: observers, __values: values }, p, value) => {
-      if (typeof p === 'string' && Number.isInteger(+p))
-        p = +p
+        for (let i = start; i < end; i++)
+          target.setProperty(i, transform(value, i))
 
-      if (typeof p === 'number') {
-        if (p < 0 || p > values.length)
-          return false
+        lock.unlock()
+      },
+    })
+  }
+}
 
-        values[p] = value
+/**
+ * Returns whether the given array is an `ObservableArray`.
+ */
+export function isObservableArray<T>(array: any): array is ObservableArray<T> {
+  return array instanceof ObservableArrayImpl
+}
 
-        for (const observer of observers)
-          observer.set(p, value)
-
-        return true
-      }
-
-      return false
-    },
-  })
-
-  return proxy as any
+/**
+ * Returns an observable array.
+ */
+export function observableArray<T>(...array: T[]): ObservableArray<T> {
+  return new ObservableArrayImpl(array).proxy
 }

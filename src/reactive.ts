@@ -1,5 +1,5 @@
 import { Observable, ObservableSymbol, Observer, Subscribable, Subscription } from '.'
-import { SetRemovalSubscription, DisposingSubscription } from './internal'
+import { SetRemovalSubscription, BuiltinObservable }                          from './internal'
 
 
 /**
@@ -11,13 +11,11 @@ export interface Subject<T> extends Subscribable<T> {
 }
 
 
-const extendedSubjectSymbol = Symbol('extendedSubject')
-
 /**
  * Returns whether the given value is a subject created with `subject`.
  */
 export function isSubject<T>(value: any): value is BuiltinSubject<T> {
-  return value && value[extendedSubjectSymbol]
+  return value instanceof BuiltinSubject
 }
 
 /**
@@ -25,14 +23,12 @@ export function isSubject<T>(value: any): value is BuiltinSubject<T> {
  */
 export class BuiltinSubject<T> implements Subject<T> {
   private readonly observers = new Set<Observer<T>>()
+  private readonly weakObservers = new WeakSet<Observer<T>>()
+
   private v: T
 
-  constructor(initialValue: T) {
+  constructor(initialValue: T, readonly readOnly = false) {
     this.v = initialValue
-  }
-
-  [extendedSubjectSymbol]() {
-    return this
   }
 
   [ObservableSymbol]() {
@@ -47,6 +43,8 @@ export class BuiltinSubject<T> implements Subject<T> {
   }
 
   set value(v: T) {
+    if (this.readOnly)
+      throw new Error('Cannot update a read-only subject.')
     if (this.v === v)
       return
 
@@ -60,6 +58,9 @@ export class BuiltinSubject<T> implements Subject<T> {
    * Sets the underlying value without notifying observers.
    */
   setUnderlyingValue(v: T) {
+    if (this.readOnly)
+      throw new Error('Cannot update a read-only subject.')
+
     this.v = v
   }
 
@@ -76,7 +77,7 @@ export class BuiltinSubject<T> implements Subject<T> {
   /**
    * Returns a new `Observable` that gets updated when this subject changes.
    */
-  map<R>(map: (input: T) => R): Observable<R>
+  map<R>(map: (input: T) => R): Subscribable<R>
 
   /**
    * Returns a new `Subject` value that propagates changes to values both ways.
@@ -84,19 +85,21 @@ export class BuiltinSubject<T> implements Subject<T> {
   map<R>(map: (input: T) => R, unmap: (input: R) => T): BuiltinSubject<R>
 
   map<R>(map: (value: T) => R, unmap?: (value: R) => T) {
-    const obs = new BuiltinSubject(map(this.v))
-    let updating = true
+    if (unmap === undefined) {
+      return new BuiltinSubject(map(this.v), true)
+    } else {
+      let obs = new BuiltinSubject(map(this.v), false)
+      let updating = true
 
-    this.subscribe(x => {
-      if (updating) return
+      this.weakObservers.add(x => {
+        if (updating) return
 
-      updating = true
-      obs.next(map(x))
-      updating = false
-    })
+        updating = true
+        obs.next(map(x))
+        updating = false
+      })
 
-    if (unmap !== undefined)
-      obs.subscribe(x => {
+      obs.weakObservers.add(x => {
         if (updating) return
 
         updating = true
@@ -104,9 +107,10 @@ export class BuiltinSubject<T> implements Subject<T> {
         updating = false
       })
 
-    updating = false
+      updating = false
 
-    return obs
+      return obs
+    }
   }
 }
 
@@ -139,7 +143,7 @@ export class Constant<T> implements Subscribable<T> {
     }
 
     return {
-      unsubscribe: () => {}
+      unsubscribe() {}
     }
   }
 }
@@ -160,8 +164,7 @@ export function constant<T>(value: T): Constant<T> {
  * An `Observable` that computes its values based on an arbitrary computation,
  * which may itself depend on other observable sequences; returned by `compute`.
  */
-export class ComputeObservable<T> implements Subscribable<T> {
-  private readonly observers = new Set<Observer<any>>()
+export class ComputeObservable<T> extends BuiltinObservable<T> {
   private readonly subscriptions = [] as Subscription[]
 
   private value: T = undefined
@@ -171,10 +174,16 @@ export class ComputeObservable<T> implements Subscribable<T> {
     private readonly dependencies: Map<Subscribable<any>, any>,
     private readonly computation: ($: <U>(observable: Observable<U>, defaultValue?: U) => U) => T,
   ) {
+    super()
+
     this.value = initialValue
   }
 
-  private subscribeToDependencies() {
+  [ObservableSymbol]() {
+    return this
+  }
+
+  protected subscribeToDependencies() {
     for (const dep of this.dependencies.keys()) {
       this.subscriptions.push(dep.subscribe(v => {
         if (v === this.dependencies.get(dep))
@@ -182,28 +191,22 @@ export class ComputeObservable<T> implements Subscribable<T> {
 
         this.dependencies.set(dep, v)
         this.value = this.computation(dep => this.dependencies.get(dep[ObservableSymbol]()))
-
-        for (const observer of this.observers)
-          (typeof observer === 'function' ? observer : observer.next)(this.value)
+        this.next(this.value)
       }))
     }
   }
 
-  private unsubscribeFromDependencies() {
+  protected unsubscribeFromDependencies() {
     const subscriptions = this.subscriptions.splice(0)
 
     for (let i = 0; i < subscriptions.length; i++)
       subscriptions[i].unsubscribe()
   }
 
-  [ObservableSymbol]() {
-    return this
-  }
-
   subscribe(observer: Observer<T>) {
     (typeof observer === 'function' ? observer : observer.next)(this.value)
 
-    return new DisposingSubscription(this as any, observer)
+    return super.subscribe(observer)
   }
 }
 
@@ -293,17 +296,22 @@ export type ObservableValueTypes<O> = {
  * An `Observable` sequence that emits values when any of its dependencies
  * is updated; returned by `combine`.
  */
-export class CombineObservable<O extends any[]> implements Subscribable<ObservableValueTypes<O>> {
-  private readonly observers = new Set<Observer<any>>()
+export class CombineObservable<O extends any[]> extends BuiltinObservable<ObservableValueTypes<O>> {
   private readonly subscriptions = [] as Subscription[]
 
   private readonly values: ObservableValueTypes<O>
 
   constructor(readonly observables: O) {
+    super()
+
     this.values = new Array(observables.length) as any
   }
 
-  private subscribeToDependencies() {
+  [ObservableSymbol]() {
+    return this
+  }
+
+  protected subscribeToDependencies() {
     const observables = this.observables
 
     for (let i = 0; i < observables.length; i++) {
@@ -316,27 +324,21 @@ export class CombineObservable<O extends any[]> implements Subscribable<Observab
       } else {
         this.subscriptions.push(obs[ObservableSymbol]().subscribe(v => {
           this.values[j] = v
-
-          for (const observer of this.observers)
-            (typeof observer === 'function' ? observer : observer.next)(this.values)
+          this.next(this.values)
         }))
       }
     }
   }
 
-  private unsubscribeFromDependencies() {
+  protected unsubscribeFromDependencies() {
     const subscriptions = this.subscriptions.splice(0)
 
     for (let i = 0; i < subscriptions.length; i++)
       subscriptions[i].unsubscribe()
   }
 
-  [ObservableSymbol]() {
-    return this
-  }
-
   subscribe(observer: Observer<ObservableValueTypes<O>>) {
-    const subscription = new DisposingSubscription(this as any, observer)
+    const subscription = super.subscribe(observer)
 
     if (this.values.indexOf(undefined) === -1)
       (typeof observer === 'function' ? observer : observer.next)(this.values)
@@ -355,43 +357,33 @@ export function combine<O extends any[]>(...observables: O): CombineObservable<O
 
 
 
-export class Mapper<T, U> implements Subscribable<U> {
-  private readonly observers = new Set<Observer<U>>()
-
+export class Mapper<T, U> extends BuiltinObservable<U> {
   private subscription: Subscription | undefined
-  private value: U | undefined
-  private closed: boolean
+  private value       : U | undefined
+
+  [ObservableSymbol]() { return this }
 
   constructor(readonly source: Observable<T>, readonly map: (value: T) => U) {
-    this.closed = false
+    super()
   }
 
-  [ObservableSymbol]() {
-    return this
-  }
-
-  private subscribeToDependencies() {
+  protected subscribeToDependencies() {
     if (this.closed)
       return
 
     this.subscription = this.source[ObservableSymbol]().subscribe({
       next: v => {
         this.value = this.map(v)
-
-        for (const observer of this.observers)
-          (typeof observer === 'function' ? observer : observer.next)(this.value)
+        this.next(this.value)
       },
 
       complete: () => {
-        this.closed = true
-
-        for (const observer of this.observers)
-          (typeof observer === 'function' ? observer : observer.next)(this.value)
+        this.complete()
       }
     })
   }
 
-  private unsubscribeFromDependencies() {
+  protected unsubscribeFromDependencies() {
     if (this.subscription === undefined)
       return
 
@@ -400,14 +392,10 @@ export class Mapper<T, U> implements Subscribable<U> {
   }
 
   subscribe(observer: Observer<U>) {
-    const subscription = new DisposingSubscription(this as any, observer)
-
     if (this.value !== undefined)
       (typeof observer === 'function' ? observer : observer.next)(this.value)
-    if (this.closed && typeof observer === 'object' && typeof observer.complete === 'function')
-      observer.complete()
 
-    return subscription
+    return super.subscribe(observer)
   }
 }
 
