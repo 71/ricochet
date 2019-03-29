@@ -30,7 +30,7 @@ module.exports = {
     ],
   },
   externals: [
-    'rxjs'
+    'rxjs',
   ],
   devtool: 'source-map',
 }

@@ -174,7 +174,6 @@ type WritablePart<T> = Pick<T, WritableKeys<T>>
  */
 export type Component<Props extends object, ReturnType extends Node | Observable<Node>> = (props: Props) => ReturnType
 
-
 /**
  * Renders an intrinsic element.
  */
@@ -218,9 +217,9 @@ export function h(
     destroy: () => destroy(element) //destroy.bind(element)
   }
 
-  try {
-    initSubscriptions.push(subscriptions)
+  contextSubscriptions.push(subscriptions)
 
+  try {
     if (typeof tag === 'string') {
       const el = document.createElement(tag)
       const attrs = props
@@ -320,11 +319,8 @@ export function h(
 
       const el = tag(props)
 
-      subscriptions.push({
-        unsubscribe() {
-          el.destroy && el.destroy()
-        }
-      })
+      if (el == null)
+        throw new Error('Element returned by component was null.')
 
       element = el
     }
@@ -347,23 +343,27 @@ export function h(
     if (callback != null)
       callback(element)
   } finally {
-    initSubscriptions.pop()
+    contextSubscriptions.pop()
   }
 
   return element as any
 }
 
-const initSubscriptions = [] as Subscription[][]
+// While waiting for https://github.com/webpack/webpack/issues/6977 to be resolved,
+// we now have a little problem: 'contextSubscriptions' is defined multiple times,
+// therefore 'attach' may fail for no reason. We fix this by forcing a global
+// context via 'window'. Sorry.
+const contextSubscriptions: Subscription[][]
+  = window['__ricochet_ctx_subscriptions'] || (window['__ricochet_ctx_subscriptions'] = [])
 
 /**
  * Attaches the given subscriptions to the element that is currently being initialized.
  */
 export function attach(...subscriptions: Subscription[]): void {
-  if (initSubscriptions.length === 0)
+  if (contextSubscriptions.length === 0)
     throw new Error('`attach` can only be called in a component initializer.')
 
-  for (const sub of subscriptions)
-    initSubscriptions[initSubscriptions.length - 1].push(sub)
+  contextSubscriptions[contextSubscriptions.length - 1].push(...subscriptions)
 }
 
 
@@ -461,20 +461,23 @@ function render(parent: Element, node: NestedNode, subscriptions: Subscription[]
           // rendered children, and replace them by the new ones.
           // The inserted children are the ones inserted after the child insertion point,
           // but before the insertion point given to us.
-          if (hadValue)
+          if (hadValue) {
             destroyRange(prev[0], next[0])
 
-          try {
-            initSubscriptions.push(subscriptions)
+            prev[0] = undefined
+          }
 
+          contextSubscriptions.push(subscriptions)
+
+          try {
             r(newValue, prev, next, false)
           } finally {
-            initSubscriptions.pop()
+            contextSubscriptions.pop()
           }
 
           hadValue = prev[0] !== undefined
 
-          if (prev[0] === undefined)
+          if (!hadValue)
             prev[0] = next[0]
         }
 
@@ -503,7 +506,17 @@ function render(parent: Element, node: NestedNode, subscriptions: Subscription[]
     }
 
     if (typeof (node as CustomNode).render === 'function') {
-      (node as CustomNode).render(parent, prev, next, r)
+      function safeRender(node: NestedNode, prev: NodeRef, next: NodeRef) {
+        contextSubscriptions.push(subscriptions)
+
+        try {
+          r(node, prev, next)
+        } finally {
+          contextSubscriptions.pop()
+        }
+      }
+
+      (node as CustomNode).render(parent, prev, next, safeRender)
 
       return
     }

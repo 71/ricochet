@@ -29,7 +29,6 @@ describe('Observable array utilities', () => {
     expect(c[1]).toBe('3')
     expect(c[2]).toBe('5')
 
-    console.log(c)
     a[2] = 42
 
     expect(a[2]).toBe(42)

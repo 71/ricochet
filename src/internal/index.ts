@@ -41,7 +41,7 @@ export function destroyRange(prevIncluded: Node, nextExcluded: Node): void {
     const parent = prevIncluded.parentElement
 
     if (parent != null) {
-      while (parent.lastChild != prevIncluded)
+      while (parent.lastChild !== prevIncluded)
         destroy(parent.lastChild)
     } else {
       while (prevIncluded != null) {
@@ -53,7 +53,7 @@ export function destroyRange(prevIncluded: Node, nextExcluded: Node): void {
       return
     }
   } else {
-    while (nextExcluded.previousSibling != prevIncluded)
+    while (nextExcluded.previousSibling !== prevIncluded)
       destroy(nextExcluded.previousSibling)
   }
 
@@ -90,12 +90,7 @@ export abstract class BuiltinObservable<T> implements Subscribable<T> {
      */
     class DisposingSubscription<T> implements Subscription {
       /** Creates the subscription, performing all necesarry steps. */
-      constructor(readonly obs: BuiltinObservable<T>, readonly observer: Observer<T>) {
-        if (obs.observers.size === 0)
-          obs.subscribeToDependencies()
-
-        obs.observers.add(observer)
-      }
+      constructor(readonly obs: BuiltinObservable<T>, readonly observer: Observer<T>) {}
 
       unsubscribe() {
         const obs = this.obs
@@ -105,12 +100,17 @@ export abstract class BuiltinObservable<T> implements Subscribable<T> {
       }
     }
 
+    this.observers.add(observer)
+
+    if (this.observers.size === 1)
+      this.subscribeToDependencies()
+
     return new DisposingSubscription(this as any, observer)
   }
 
   /** Notify observers of the update of the observable sequence. */
   protected next(value: T) {
-    this.observers.forEach(x => typeof x === 'object' ? x.next(value) : x(value))
+    this.observers.forEach(function(x) { typeof x === 'object' ? x.next(this) : x(this) }, value)
   }
 
   /** Notify observers of the completion of the observable sequence. */

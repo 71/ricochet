@@ -23,11 +23,10 @@ export function isSubject<T>(value: any): value is BuiltinSubject<T> {
  */
 export class BuiltinSubject<T> implements Subject<T> {
   private readonly observers = new Set<Observer<T>>()
-  private readonly weakObservers = new WeakSet<Observer<T>>()
 
   private v: T
 
-  constructor(initialValue: T, readonly readOnly = false) {
+  constructor(initialValue: T) {
     this.v = initialValue
   }
 
@@ -43,8 +42,6 @@ export class BuiltinSubject<T> implements Subject<T> {
   }
 
   set value(v: T) {
-    if (this.readOnly)
-      throw new Error('Cannot update a read-only subject.')
     if (this.v === v)
       return
 
@@ -58,9 +55,6 @@ export class BuiltinSubject<T> implements Subject<T> {
    * Sets the underlying value without notifying observers.
    */
   setUnderlyingValue(v: T) {
-    if (this.readOnly)
-      throw new Error('Cannot update a read-only subject.')
-
     this.v = v
   }
 
@@ -86,12 +80,12 @@ export class BuiltinSubject<T> implements Subject<T> {
 
   map<R>(map: (value: T) => R, unmap?: (value: R) => T) {
     if (unmap === undefined) {
-      return new BuiltinSubject(map(this.v), true)
+      return new Mapper(this, map)
     } else {
-      let obs = new BuiltinSubject(map(this.v), false)
+      let obs = new BuiltinSubject(map(this.v))
       let updating = true
 
-      this.weakObservers.add(x => {
+      this.subscribe(x => {
         if (updating) return
 
         updating = true
@@ -99,7 +93,7 @@ export class BuiltinSubject<T> implements Subject<T> {
         updating = false
       })
 
-      obs.weakObservers.add(x => {
+      obs.subscribe(x => {
         if (updating) return
 
         updating = true
@@ -204,9 +198,13 @@ export class ComputeObservable<T> extends BuiltinObservable<T> {
   }
 
   subscribe(observer: Observer<T>) {
-    (typeof observer === 'function' ? observer : observer.next)(this.value)
+    // The subscription must be obtained BEFORE the next check,
+    // since otherwise we may not have computed our value.
+    const subscription = super.subscribe(observer)
 
-    return super.subscribe(observer)
+    ;(typeof observer === 'function' ? observer : observer.next)(this.value)
+
+    return subscription
   }
 }
 
@@ -338,6 +336,8 @@ export class CombineObservable<O extends any[]> extends BuiltinObservable<Observ
   }
 
   subscribe(observer: Observer<ObservableValueTypes<O>>) {
+    // The subscription must be obtained BEFORE the next check,
+    // since otherwise we may not have computed our values.
     const subscription = super.subscribe(observer)
 
     if (this.values.indexOf(undefined) === -1)
@@ -359,7 +359,6 @@ export function combine<O extends any[]>(...observables: O): CombineObservable<O
 
 export class Mapper<T, U> extends BuiltinObservable<U> {
   private subscription: Subscription | undefined
-  private value       : U | undefined
 
   [ObservableSymbol]() { return this }
 
@@ -373,8 +372,7 @@ export class Mapper<T, U> extends BuiltinObservable<U> {
 
     this.subscription = this.source[ObservableSymbol]().subscribe({
       next: v => {
-        this.value = this.map(v)
-        this.next(this.value)
+        this.next(this.map(v))
       },
 
       complete: () => {
@@ -389,13 +387,6 @@ export class Mapper<T, U> extends BuiltinObservable<U> {
 
     this.subscription.unsubscribe()
     this.subscription = undefined
-  }
-
-  subscribe(observer: Observer<U>) {
-    if (this.value !== undefined)
-      (typeof observer === 'function' ? observer : observer.next)(this.value)
-
-    return super.subscribe(observer)
   }
 }
 
