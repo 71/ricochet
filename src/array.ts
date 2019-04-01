@@ -205,12 +205,20 @@ class ObservableArrayImpl<T> extends Array<T> implements Partial<ObservableArray
           cb(...arguments)
       }
 
-      if (fallbackObservers.length === 0 && this.changeObservers.size === 0)
-        return prop.apply(this.proxy, arguments)
+      if (fallbackObservers.length === 0 && this.changeObservers.size === 0) {
+        const result = Array.prototype[p].apply(this.data, arguments)
+
+        if (this.data.length !== this.length$$.value)
+          this.length$$.next(this.data.length)
+
+        return result
+      }
 
       const passthrough = new Proxy(this.data, {
         set: (data, p, v) => {
-          if (typeof p === 'number' || typeof p === 'string' && Number.isInteger(+p)) {
+          if (p === 'length') {
+            this.length$$.next(v)
+          } else if (typeof p === 'number' || typeof p === 'string' && Number.isInteger(+p)) {
             const pp = +p
 
             fallbackObservers.forEach(x => x.set(pp, v))
@@ -287,10 +295,10 @@ class ObservableArrayImpl<T> extends Array<T> implements Partial<ObservableArray
   }
 
   swap(a: number, b: number): T extends NestedNode ? void : never {
-    const tmp = this[a]
+    const tmp = this.data[a]
 
-    this[a] = this[b]
-    this[b] = tmp
+    this.proxy[a] = this.data[b]
+    this.proxy[b] = tmp
 
     return undefined
   }
@@ -334,15 +342,15 @@ class ObservableArrayImpl<T> extends Array<T> implements Partial<ObservableArray
       // Delete some items
       if (deleteCount > 0) {
         destroyRange(prev[0], next[0])
-
-        if (start > 0)
-          renderedNodes[start] = next
       }
+
+      if (items.length === 0)
+        return
 
       // And create some more
       const generated = new Array<NodeRef>(items.length)
 
-      for (let i = items.length - 1; i >= 0; i--) {
+      for (let i = items.length - 1; i > 0; i--) {
         const newPrev = [undefined] as NodeRef
 
         r(items[i], newPrev, next)
@@ -350,11 +358,9 @@ class ObservableArrayImpl<T> extends Array<T> implements Partial<ObservableArray
         generated[i] = next = newPrev
       }
 
-      if (items.length > 0) {
-        r(items[0], prev, next)
+      r(items[0], prev, next)
 
-        generated[0] = prev
-      }
+      generated[0] = prev
 
       // And update the arrays
       renderedNodes.splice(start, deleteCount, ...generated)

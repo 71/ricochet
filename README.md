@@ -70,24 +70,69 @@ Now here it is in Ricochet. Please note that [`subject`](#function-subjecttiniti
 const Clock = () => {
   // Since 'Clock' is only called once, there is no need for a
   // tool such as 'useState'.
-  const date = subject(new Date())
+  const date$ = subject(new Date())
 
   // Once again, there is no need to wrap this logic at all.
-  const interval = setInterval(() => date.next(new Date()), 1000)
+  const interval = setInterval(() => date$.next(new Date()), 1000)
 
   // Resources are bound to elements and can be disposed of by
   // using `element.destroy()`. To give ownership of a subscription
   // to an element, we can use the 'attach' function.
   attach({
-    unsubscribe: () => clearInterval(interval)
+    unsubscribe() {
+      clearInterval(interval)
+    }
   })
 
   return (
     // Ricochet has first class support for streams. When 'date'
     // will be updated, the content of the span will be as well.
-    <span>{date}</span>
+    <span>{date$}</span>
   )
 }
+```
+
+
+## Event handlers and data binding
+
+Two different ways are provided to subscribe to event handlers on rendered elements.
+
+The first way is to simply set an element's `on*` property on creation, ie.
+
+```tsx
+const onClickHandler = () => {
+  alert('Clicked!')
+}
+
+<button onclick={onClickHandler} />
+```
+
+The second way, unique to Ricochet, is to create a `Connectable`, which can be
+attached to an element during its creation. This provides an easy way to convert
+an event handler into an observable sequence, while playing nicely with the
+declarative JSX syntax.
+
+```tsx
+const click$ = eventListener('click')
+
+attach(
+  click$.subscribe(() => {
+    alert('Clicked!')
+  })
+)
+
+<button connect={click$} />
+```
+
+Another `Connectable` is provided for data binding.
+
+```tsx
+const name$ = subject('John')
+const nameBinding$ = valueBinder(name$)
+
+// Any change to 'name$' will update the value of the input, and any
+// change to the input's value will update 'name$'.
+<input type='text' connect={nameBinding$} />
 ```
 
 
@@ -143,6 +188,83 @@ class PredicateNode implements CustomNode {
 ```
 
 
+### Caching elements
+
+Since all Ricochet elements are regular DOM elements, it is very easy to cache elements that
+we know we may have to reuse.
+
+```tsx
+const App = ({ dialogProps, ...props }) => {
+  const dialogOpen$ = subject(false)
+  const dialog = <Dialog { ...dialogProps } />
+
+  return (
+    <div class='app'>
+      <Content { ...props } />
+
+      { dialogOpen$.map(dialogOpen => dialogOpen && dialog) }
+    </div>
+  )
+}
+```
+
+This is unfortunately not that simple. Here, as soon as 'dialog' gets rendered for the first time,
+some resources will be attached to it via `attach`. Then, as soon as `dialogOpen$` becomes `false`,
+all these resources will be disposed of, and `dialog`, while still existing, will be invalid.
+
+Therefore, we must tell Ricochet that `dialog` is owned by `App`, and that it should
+only be disposed when `App` itself is disposed of.
+
+```tsx
+// This line:
+const dialog = <Dialog { ...dialogProps } />
+
+// Becomes this line: MUST BE ABLE TO GET OWNERSHIP AS SUBSCRIPTION
+const dialog = <Dialog noimplicitdispose { ...dialogProps } />
+```
+
+Now, when dialog is removed by its parent element, it will not be disposed automatically.  
+In order to remove it, `element.destroy(true)` must be called, `true` precising that it
+must be disposed as well.
+
+A common pattern is to cache an element in a component, and to dispose it when the parent
+component itself is disposed, rather than when the element is hidden. This can be easily
+accomplished by calling `attach` with an element rather than with a subscription.
+
+```tsx
+const TodoList = ({ todos }: { todos: Todo[] }) => {
+  const cache: Record<number, TodoItem> = {}
+
+  for (const todo of todos) {
+    const todoItem = <TodoItem text={todo.text} done={todo.done} noimplicitdispose />
+
+    attach(cache[todo.id] = todoItem)
+  }
+
+  const query$: Subject<string> = subject('')
+
+  return (
+    <div>
+      <input connect={valueBinder(query$)} />
+
+      <ul>
+        { query$.map(query =>
+            todos
+              .filter(todo => todo.text.includes(query))
+              .map(todo => cache[todo.id])
+        ) }
+      </ul>
+    </div>
+  )
+}
+```
+
+In the above example, if `noimplicitdispose` had not been used, each `TodoItem` would have been
+disposed as soon as it was filtered out by the query, making subsequent renders invalid.
+
+Thanks to `noimplicitdispose`, `TodoItem`s will only be disposed when `TodoList` itself is disposed.
+
+
 ### Built-in optimizations
 
 Ricochet provides several utilities designed to make things faster, which are listed below. Other
@@ -165,8 +287,8 @@ return (
         without updating the rest of the elements. */}
     <button onclick={() => numbers.push(numbers.length)}>Add number</button>
 
-    {/* 'map' is specialized to return another `ObservableArray`. */}
-    {numbers.map(x => <h2>{x}</h2>)}
+    {/* 'sync' returns an `ObservableArray` that is synced with its source. */}
+    { numbers.sync(x => <h2>{x}</h2>) }
   </div>
 )
 ```
@@ -431,13 +553,14 @@ Renders a component.
 
 
 
-#### [`function attach(...subscriptions): void`](src/index.ts#L168-L179)
+#### [`function attach(...subscriptions): typeof attach`](src/index.ts#L168-L179)
 
 | Parameter | Type | Description |
 | --------- | ---- | ----------- |
-| subscriptions | `Subscription[]` | None |
+| subscriptions | `(Subscription | Element)[]` | None |
 
-Attaches the given subscriptions to the element that is currently being initialized.
+Attaches the given subscriptions or explicitly-disposed elements
+to the element that is currently being initialized.
 
 
 

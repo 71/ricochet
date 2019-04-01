@@ -6,15 +6,14 @@ import { Subscription, Observer, Subscribable, ObservableSymbol } from '..'
  *
  * Not intended for direct use.
  */
-export function destroy(node?: Node & Partial<JSX.Element>, remove = true) {
+export function destroy(node: Node & Partial<JSX.Element>, dispose: boolean) {
   if (node === null)
     console.error('Bug detected: attempting to destroy a null node.')
 
-  if (node === undefined)
-    node = this
+  node.remove()
 
-  if (remove)
-    node.remove()
+  if (!node.disposeImplicitly && !dispose)
+    return
 
   if (node.subscriptions == null)
     return
@@ -42,11 +41,11 @@ export function destroyRange(prevIncluded: Node, nextExcluded: Node): void {
 
     if (parent != null) {
       while (parent.lastChild !== prevIncluded)
-        destroy(parent.lastChild)
+        destroy(parent.lastChild, false)
     } else {
       while (prevIncluded != null) {
         const next = prevIncluded.nextSibling
-        destroy(prevIncluded)
+        destroy(prevIncluded, false)
         prevIncluded = next
       }
 
@@ -54,10 +53,10 @@ export function destroyRange(prevIncluded: Node, nextExcluded: Node): void {
     }
   } else {
     while (nextExcluded.previousSibling !== prevIncluded)
-      destroy(nextExcluded.previousSibling)
+      destroy(nextExcluded.previousSibling, false)
   }
 
-  destroy(prevIncluded)
+  destroy(prevIncluded, false)
 }
 
 
@@ -152,18 +151,18 @@ export class SetRemovalSubscription<T> implements Subscription {
  */
 export class DestroyableElementSubscription implements Subscription {
   /** Creates the subscription. */
-  constructor(readonly element: Node) {}
+  constructor(readonly element: Node, readonly dispose: boolean) {}
 
   unsubscribe() {
-    destroy(this.element)
+    destroy(this.element, this.dispose)
   }
 
   /**
    * Attaches a `DestroyableElementSubscription` to the given `subscriptions`
    * if the given element is destroyable.
    */
-  static attach(element: Node, subscriptions: Subscription[]) {
+  static attach(element: Node, subscriptions: Subscription[], dispose = false) {
     if (typeof (element as JSX.Element).subscriptions === 'object')
-      subscriptions.push(new DestroyableElementSubscription(element))
+      subscriptions.push(new DestroyableElementSubscription(element, dispose))
   }
 }

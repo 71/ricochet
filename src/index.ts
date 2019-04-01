@@ -74,9 +74,10 @@ declare global {
       ondestroy?: () => void
 
       addEventListener(type: 'destroy', listener: (this: Element, ev: Event) => any, options?: boolean | AddEventListenerOptions): void
-      destroy(): void
+      destroy(force: boolean): void
 
       readonly subscriptions: Subscription[]
+      readonly disposeImplicitly: boolean
     }
 
     type StyleDeclaration = {
@@ -85,7 +86,8 @@ declare global {
 
     type IntrinsicAttributes = {
       children?: NestedNode
-      connect ?: Connectable<any> | Connectable<any>[]
+      connect ?: Connectable<Node> | Connectable<Node>[]
+      noimplicitdispose?: boolean
     }
 
     type IntrinsicElements = {
@@ -94,6 +96,7 @@ declare global {
         class    ?: MaybeObservable<string | string[] | Record<string, boolean>>
         className?: MaybeObservable<string | string[] | Record<string, boolean>>
         connect  ?: Connectable<HTMLElementTagNameMap[K]> | Connectable<HTMLElementTagNameMap[K]>[]
+        noimplicitdispose?: boolean
         ref      ?: (el: HTMLElementTagNameMap[K]) => void
         style    ?: MaybeObservable<string | StyleDeclaration>
       } & {
@@ -213,9 +216,10 @@ export function h(
   const subscriptions = [] as Subscription[]
   const otherProperties = {
     subscriptions,
+    disposeImplicitly: !props || !props.noimplicitdispose,
 
-    destroy: () => destroy(element) //destroy.bind(element)
-  }
+    destroy: (dispose: boolean) => destroy(element, dispose)
+  } as Partial<JSX.Element>
 
   contextSubscriptions.push(subscriptions)
 
@@ -359,11 +363,25 @@ const contextSubscriptions: Subscription[][]
 /**
  * Attaches the given subscriptions to the element that is currently being initialized.
  */
-export function attach(...subscriptions: Subscription[]): void {
-  if (contextSubscriptions.length === 0)
+export function attach(...subscriptions: (Subscription | JSX.Element)[]): typeof attach {
+  const ctxSubscriptions =
+    Array.isArray(this)
+      ? this as Subscription[]
+      : contextSubscriptions[contextSubscriptions.length - 1]
+
+  if (ctxSubscriptions === undefined)
     throw new Error('`attach` can only be called in a component initializer.')
 
-  contextSubscriptions[contextSubscriptions.length - 1].push(...subscriptions)
+  for (let i = 0; i < subscriptions.length; i++) {
+    const subscription = subscriptions[i]
+
+    if (subscription instanceof Node)
+      subscriptions[i] = new DestroyableElementSubscription(subscription, true)
+  }
+
+  ctxSubscriptions.push(...subscriptions as Subscription[])
+
+  return attach.bind(ctxSubscriptions)
 }
 
 
