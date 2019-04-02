@@ -302,7 +302,7 @@ export class CombineObservable<O extends any[]> extends BuiltinObservable<Observ
   constructor(readonly observables: O) {
     super()
 
-    this.values = new Array(observables.length) as any
+    this.values = new Array(observables.length).fill(undefined) as any
   }
 
   [ObservableSymbol]() {
@@ -322,7 +322,9 @@ export class CombineObservable<O extends any[]> extends BuiltinObservable<Observ
       } else {
         this.subscriptions.push(obs[ObservableSymbol]().subscribe(v => {
           this.values[j] = v
-          this.next(this.values)
+
+          if (this.values.indexOf(undefined) === -1)
+            this.next(this.values)
         }))
       }
     }
@@ -338,12 +340,7 @@ export class CombineObservable<O extends any[]> extends BuiltinObservable<Observ
   subscribe(observer: Observer<ObservableValueTypes<O>>) {
     // The subscription must be obtained BEFORE the next check,
     // since otherwise we may not have computed our values.
-    const subscription = super.subscribe(observer)
-
-    if (this.values.indexOf(undefined) === -1)
-      (typeof observer === 'function' ? observer : observer.next)(this.values)
-
-    return subscription
+    return super.subscribe(observer)
   }
 }
 

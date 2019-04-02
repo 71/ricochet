@@ -336,7 +336,7 @@ class ObservableArrayImpl<T> extends Array<T> implements Partial<ObservableArray
       if (deleteCount === undefined)
         deleteCount = renderedNodes.length - start
 
-      let prev = renderedNodes[start] || firstPrev
+      let prev = renderedNodes[start] || lastNext
       let next = renderedNodes[start + deleteCount] || lastNext
 
       // Delete some items
@@ -345,22 +345,23 @@ class ObservableArrayImpl<T> extends Array<T> implements Partial<ObservableArray
       }
 
       if (items.length === 0)
-        return
+        return renderedNodes.splice(start, deleteCount)
 
       // And create some more
       const generated = new Array<NodeRef>(items.length)
 
-      for (let i = items.length - 1; i > 0; i--) {
-        const newPrev = [undefined] as NodeRef
+      for (let i = items.length - 1; i >= 0; i--) {
+        const childPrev = [undefined] as NodeRef
 
-        r(items[i], newPrev, next)
+        r(items[i], childPrev, next)
 
-        generated[i] = next = newPrev
+        if (childPrev[0] !== undefined)
+          // A node was rendered, so we can update our pointer so that
+          // the next node will be inserted before the one we just inserted.
+          next = childPrev
+
+        generated[i] = childPrev
       }
-
-      r(items[0], prev, next)
-
-      generated[0] = prev
 
       // And update the arrays
       renderedNodes.splice(start, deleteCount, ...generated)
@@ -407,21 +408,17 @@ class ObservableArrayImpl<T> extends Array<T> implements Partial<ObservableArray
       splice,
 
       pop: () => {
-        const prev = renderedNodes[renderedNodes.length - 2] || firstPrev
-        const next = renderedNodes.pop()
+        const prev = renderedNodes.pop()
+        const next = lastNext
 
-        prev[0] = next[0]
-
-        destroyRange(next[0], undefined)
+        destroyRange(prev[0], next[0])
       },
 
       shift: () => {
-        const prev = firstPrev
-        const next = renderedNodes.shift()
+        const prev = renderedNodes.shift()
+        const next = renderedNodes[0] || lastNext
 
         destroyRange(prev[0], next[0])
-
-        prev[0] = next[0]
       },
 
       push: (...items: any[]) => {
