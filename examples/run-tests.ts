@@ -5,13 +5,13 @@
 
 window['expect'] = function (a: any) {
   function assert(condition: () => boolean, values: object) {
+    if (condition())
+      return
+
     let cond = condition.toString()
 
     cond = cond.replace(/^function \(\) {\s*return\s*|\s*;\s*}\s*$/g, '')
     cond = cond.replace(new RegExp('\\b(?:' + Object.keys(values).join('|') + ')\\b', 'g'), substring => JSON.stringify(values[substring]))
-
-    if (condition())
-      return
 
     console.error(cond, values)
     throw 'ASSERT'

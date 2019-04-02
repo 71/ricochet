@@ -213,7 +213,8 @@ export function h(
   let element: HTMLElement
   let callback: (el: HTMLElement) => void
 
-  const subscriptions = [] as Subscription[]
+  let subscriptions = [] as Subscription[]
+
   const otherProperties = {
     subscriptions,
     disposeImplicitly: !props || !props.noimplicitdispose,
@@ -301,7 +302,7 @@ export function h(
       if (children != null && children.length > 0)
         render(el, children, subscriptions)
 
-      element = el
+      element = Object.assign(el, otherProperties)
     } else {
       if (children != null && children.length > 0) {
         if (props == null)
@@ -326,16 +327,17 @@ export function h(
       if (el == null)
         throw new Error('Element returned by component was null.')
 
+      for (const prop in otherProperties) {
+        if (!(prop in el))
+          el[prop] = otherProperties[prop]
+      }
+
+      subscriptions = (el as any as JSX.Element).subscriptions
       element = el
     }
 
-    Object.assign(element, otherProperties)
-
     if (props && props.connect) {
-      const addSubscription = (function (this: Subscription[], ...subs: Subscription[]) {
-        for (const subscription of subs)
-          subscriptions.push(subscription)
-      }).bind(subscriptions)
+      const addSubscription = subscriptions.push.bind(subscriptions)
 
       if (Array.isArray(props.connect))
         for (const c of props.connect)
