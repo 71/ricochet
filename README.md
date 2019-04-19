@@ -156,7 +156,7 @@ can be manipulated to optimize their performances.
 For instance, [RxJS](https://github.com/ReactiveX/rxjs) provides the following features
 for improving how streams are processed:
 - [Schedulers](https://rxjs-dev.firebaseapp.com/guide/scheduler), which can be used to
-  batch stream updates together, or perform them at the right time.
+  batch updates together, or to perform them [at the right time](https://rxjs-dev.firebaseapp.com/api/index/const/animationFrameScheduler).
 - Operators such as [`throttle`](https://rxjs-dev.firebaseapp.com/api/operators/throttle) and
   [`debounce`](https://rxjs-dev.firebaseapp.com/api/operators/debounce).
 
@@ -178,7 +178,8 @@ class PredicateNode implements CustomNode {
     readonly predicate: (node: NestedNode) => boolean
   ) {}
 
-  render(parent: Element, prev: { value: Node }, next: { value: Node }, r: RenderFunction) {
+  render(parent: Element, prev: NodeRef, next: NodeRef, r: RenderFunction) {
+    // NodeRef is equivalent to [Node]; it is used to override variables accross function bodies.
     if (!this.predicate(this.node))
       return
 
@@ -190,12 +191,14 @@ class PredicateNode implements CustomNode {
 
 ### Caching elements
 
-Since all Ricochet elements are regular DOM elements, it is very easy to cache elements that
+Since all Ricochet elements are regular DOM elements, we may want to cache elements that
 we know we may have to reuse.
 
 ```tsx
 const App = ({ dialogProps, ...props }) => {
   const dialogOpen$ = subject(false)
+  
+  // Keep a reference to the dialog here, so that it is only rendered once
   const dialog = <Dialog { ...dialogProps } />
 
   return (
@@ -208,7 +211,7 @@ const App = ({ dialogProps, ...props }) => {
 }
 ```
 
-This is unfortunately not that simple. Here, as soon as 'dialog' gets rendered for the first time,
+This is unfortunately not that simple. Here, as soon as `dialog` gets rendered for the first time,
 some resources will be attached to it via `attach`. Then, as soon as `dialogOpen$` becomes `false`,
 all these resources will be disposed of, and `dialog`, while still existing, will be invalid.
 
@@ -219,13 +222,13 @@ only be disposed when `App` itself is disposed of.
 // This line:
 const dialog = <Dialog { ...dialogProps } />
 
-// Becomes this line: MUST BE ABLE TO GET OWNERSHIP AS SUBSCRIPTION
+// Becomes this line:
 const dialog = <Dialog noimplicitdispose { ...dialogProps } />
 ```
 
 Now, when dialog is removed by its parent element, it will not be disposed automatically.  
 In order to remove it, `element.destroy(true)` must be called, `true` precising that it
-must be disposed as well.
+the element will be both destroyed (removed from the DOM) and disposed.
 
 A common pattern is to cache an element in a component, and to dispose it when the parent
 component itself is disposed, rather than when the element is hidden. This can be easily
@@ -274,8 +277,8 @@ utilities may be added later on, such as keyed lists, memoization, and batch ren
 
 The [`ricochet/array`](#ricochetarray) module provides the
 [`observableArray<T>`](#function-observablearraytarray-observablearrayt) function, which takes an array
-and returns an [`ObservableArray<T>`](#interface-observablearrayt-extends-arrayt). This specialized
-array provides the same interface as a regular array, but is able to efficiently
+and returns an [`ObservableArray<T>`](#interface-observablearrayt-extends-arrayt-readonlyobservablearraymemberst).
+This specialized array provides the same interface as a regular array, but is able to efficiently
 map changes to its underlying data to the DOM by implementing [`CustomNode`](#interface-customnode).
 
 ```tsx
@@ -287,7 +290,7 @@ return (
         without updating the rest of the elements. */}
     <button onclick={() => numbers.push(numbers.length)}>Add number</button>
 
-    {/* 'sync' returns an `ObservableArray` that is synced with its source. */}
+    {/* 'sync' returns a `ReadonlyObservableArray` that is synced with its source. */}
     { numbers.sync(x => <h2>{x}</h2>) }
   </div>
 )
@@ -314,8 +317,8 @@ ensuring that Ricochet keeps working as intended.
   have very different interfaces, which makes it hard to manipulate one or the other
   via a single API. In cases where an `Observable<T>` *could* be accepted, it is best to
   always accept an `Observable<T>` sequence, since such sequences can be made to emit
-  a single element before completing, therefore acting exactly like a function (see:
-  [`constant`](#function-constanttvalue-subscribablet),
+  a single element before completing, therefore acting exactly like a regular function (see:
+  [`constant`](#function-constanttvalue-constantt),
   [`of`](https://rxjs-dev.firebaseapp.com/api/index/function/of)).  
   Since these observable sequences complete right after emitting an item, their
   resources will be disposed of quickly, and it will be as if a non-observable value
@@ -324,21 +327,21 @@ ensuring that Ricochet keeps working as intended.
   Additionally, the built-in functions
   [`combine`](#function-combineoobservables-subscribable-k-in-keyof-o-ok-extends-observableinfer-t--t--never)
   and
-  [`compute`](#function-computetcomputation-subscribablet) both accept observable sequences as
+  [`compute`](#function-computetcomputation-computeobservablet--constantt) both accept observable sequences as
   inputs, but may receive non-observable values, avoiding a useless subscription / unsubscription
   operation.
 
-- Ricochet was designed with [RxJS](https://github.com/ReactiveX/rxjs) in mind, but works
+- Ricochet was designed with [RxJS](https://github.com/ReactiveX/rxjs)'s API in mind, but works
   with many different reactive libraries. In fact, it only requires of observable
-  values to define a way to subscribe to them; creating the
-  [`constant`](#function-constanttvalue-subscribablet) /
+  values to define a way to subscribe to them; therefore the
+  [`constant`](#function-constanttvalue-constantt) /
   [`of`](https://rxjs-dev.firebaseapp.com/api/index/function/of) observable
-  is as simple as doing:
+  may be implement as follows:
 
   ```typescript
   function of<T>(value: T): Subscribable<T> & Observable<T> {
     const observable = {
-      [Observable.symbol]() {
+      [Symbol.observable]() {
         return observable
       },
 
